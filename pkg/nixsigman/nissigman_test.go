@@ -29,7 +29,7 @@ func (s *NixSuite) TestNarHashMarshalling(c *C) {
 	c.Assert(string(outputHash), DeepEquals, testHash)
 }
 
-const publicKey = "cache.nixos.org-1:jmkQzt2cr2aaXwrftMjybjNktqNZXcb+6LR8auhzEnIGzU9t6A3HU8Y67vraZJpgJ90XPNfkYiqUvXs5yiomAQ=="
+const publicKey = "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY="
 
 func (s *NixSuite) TestLoadPublicKeyFromString(c *C) {
 	sigman := NewNixSignatureManager()
@@ -72,4 +72,17 @@ func (s *NixSuite) TestNarInfo(c *C) {
 	content, err := ninfo.MarshalText()
 	c.Assert(err, IsNil)
 	c.Assert(string(content), DeepEquals, narInfo)
+}
+
+func (s *NixSuite) TestSignatureChecking(c *C) {
+	ninfo := &NarInfo{}
+	err := ninfo.UnmarshalText([]byte(narInfo))
+	c.Assert(err, IsNil)
+
+	sigman := NewNixSignatureManager()
+	err = sigman.LoadPublicKeyFromString(publicKey)
+	c.Assert(err, IsNil)
+
+	result := sigman.Verify(ninfo)
+	c.Assert(result, Equals, true)
 }

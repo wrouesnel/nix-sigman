@@ -2,12 +2,13 @@ package nixsigman
 
 import (
 	"bufio"
-	"crypto"
 	"crypto/ed25519"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"github.com/samber/lo"
 	"os"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -56,6 +57,16 @@ type NarInfo struct {
 	// extra is any extra fields we find
 	extra map[string]string
 	order []string
+}
+
+// Fingerprint returns the fingerpint which is signed/verified by a signature
+func (n *NarInfo) Fingerprint() []byte {
+	storeRoot := path.Dir(n.StorePath)
+	references := []string{}
+	for _, ref := range n.References {
+		references = append(references, path.Join(storeRoot, ref))
+	}
+	return []byte(fmt.Sprintf("1;%s;%s;%d;%s", n.StorePath, n.NarHash.String(), n.NarSize, strings.Join(references, ",")))
 }
 
 func (n *NarInfo) UnmarshalText(text []byte) error {
@@ -181,29 +192,71 @@ func (n *NarInfo) MarshalText() (text []byte, err error) {
 type NixSigMan struct {
 	m *sync.Mutex
 	// publickeys is the map of loaded public keys
-	publicKeys map[string]crypto.PublicKey
+	publicKeys map[string][]string
 	// privateKeys is the map of loaded private keys
-	privateKeys map[string]crypto.PrivateKey
+	privateKeys map[string][]string
 }
 
 // NewNixSignatureManager initializes a new signature manager
 func NewNixSignatureManager() *NixSigMan {
 	return &NixSigMan{
 		m:           &sync.Mutex{},
-		publicKeys:  make(map[string]crypto.PublicKey),
-		privateKeys: make(map[string]crypto.PrivateKey),
+		publicKeys:  make(map[string][]string),
+		privateKeys: make(map[string][]string),
 	}
+}
+
+// Verify NarInfo signatures. Returns the list of keys which matched, along with their names.
+func (n *NixSigMan) Verify(ninfo *NarInfo) (verified bool) {
+	n.m.Lock()
+	defer n.m.Unlock()
+
+	// TODO: track valid keys, misidentified keys, and failing keys
+	validKeys := make(map[string][]string)
+	// No info, no matches
+	if ninfo == nil {
+		return
+	}
+
+	for publicKey, names := range n.publicKeys {
+		// this is protected on load so it always succeeds
+		loadedKey := ed25519.PublicKey(lo.Must(base64.StdEncoding.DecodeString(publicKey)))
+
+		for _, signature := range ninfo.Sig {
+			// TODO: check for signature name matching i.e. host != cert
+			if ed25519.Verify(loadedKey, ninfo.Fingerprint(), signature) {
+				// Verified
+				if _, ok := validKeys[publicKey]; !ok {
+					validKeys[publicKey] = make([]string, 0)
+				}
+				validKeys[publicKey] = append(validKeys[publicKey], names...)
+			}
+		}
+	}
+
+	return len(validKeys) > 0
 }
 
 func (n *NixSigMan) LoadPublicKeyFromString(key string) error {
 	n.m.Lock()
 	defer n.m.Unlock()
 	parts := strings.SplitN(key, ":", 2)
-	keyBytes, err := base64.StdEncoding.DecodeString(parts[1])
-	if err != nil {
-		return err
+	if len(parts) != 2 {
+		return errors.New("invalid public key string")
 	}
-	n.publicKeys[parts[0]] = ed25519.PublicKey(keyBytes)
+
+	if pubkey, err := base64.StdEncoding.DecodeString(parts[1]); err != nil {
+		return errors.New("could not decode public key string")
+	} else if len(pubkey) != 32 {
+		return fmt.Errorf("bad private key length (want 64 bytes got %d bytes)", len(pubkey))
+	}
+
+	if _, ok := n.publicKeys[parts[1]]; !ok {
+		n.publicKeys[parts[1]] = make([]string, 0)
+	}
+
+	n.publicKeys[parts[1]] = append(n.publicKeys[parts[1]], parts[0])
+
 	return nil
 }
 
@@ -211,13 +264,26 @@ func (n *NixSigMan) LoadPrivateKeyFromString(key string) error {
 	n.m.Lock()
 	defer n.m.Unlock()
 	parts := strings.SplitN(key, ":", 2)
-	keyBytes, err := base64.StdEncoding.DecodeString(parts[1])
-	if err != nil {
-		return err
+	if len(parts) != 2 {
+		return errors.New("invalid private key string")
 	}
-	n.publicKeys[parts[0]] = ed25519.PrivateKey(keyBytes)
+
+	if privKey, err := base64.StdEncoding.DecodeString(parts[1]); err != nil {
+		return errors.New("could not decode private key string")
+	} else if len(privKey) != 64 {
+		return fmt.Errorf("bad private key length (want 64 bytes got %d bytes)", len(privKey))
+	}
+
+	if _, ok := n.privateKeys[parts[1]]; !ok {
+		n.privateKeys[parts[1]] = make([]string, 0)
+	}
+
+	n.privateKeys[parts[1]] = append(n.privateKeys[parts[1]], parts[0])
+
 	return nil
 }
+
+// TODO: support line comments
 
 func (n *NixSigMan) LoadPublicKeyFromFile(path string) error {
 	fh, err := os.OpenFile(path, os.O_CREATE|os.O_RDONLY, os.FileMode(0777))
@@ -228,6 +294,12 @@ func (n *NixSigMan) LoadPublicKeyFromFile(path string) error {
 	for bio.Scan() {
 		line := bio.Text()
 		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
 		err = n.LoadPublicKeyFromString(line)
 		if err != nil {
 			return err
@@ -248,6 +320,12 @@ func (n *NixSigMan) LoadPrivateKeyFromFile(path string) error {
 	for bio.Scan() {
 		line := bio.Text()
 		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
 		err = n.LoadPrivateKeyFromString(line)
 		if err != nil {
 			return err
