@@ -25,6 +25,14 @@ func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdOut io.Write
 	logger := zap.L().With(zap.String("command", ctx.Command()))
 
 	switch ctx.Command() {
+	case "sign":
+		err = &ErrCommandNotImplemented{Command: ctx.Command()}
+		logger.Error("Command not implemented")
+		
+	case "verify":
+		err = &ErrCommandNotImplemented{Command: ctx.Command()}
+		logger.Error("Command not implemented")
+
 	default:
 		err = &ErrCommandNotImplemented{Command: ctx.Command()}
 		logger.Error("Command not implemented")

@@ -26,6 +26,16 @@ var CLI struct {
 		Level  string `help:"logging level" default:"info"`
 		Format string `help:"logging format (${enum})" enum:"console,json" default:"console"`
 	} `embed:"" prefix:"log-"`
+
+	PrivateKeys []string `help:"Private Key Files" type:"path"`
+	PublicKeys  []string `help:"Trusted Public Keys" type:"path"`
+
+	Debug struct {
+		Fingerprint struct{} `cmd:"" help:"Generate the fingerprint for a NarInfo file"`
+	} `cmd:""`
+
+	Sign   SignConfig   `cmd:"" help:"Sign a Nix archive"`
+	Verify VerifyConfig `cmd:"" help:"Verify a Nix archive signature"`
 }
 
 // Entrypoint is the real application entrypoint. This structure allows test packages to E2E-style tests invoking commmands
@@ -48,6 +58,7 @@ func Entrypoint(stdOut io.Writer, stdErr io.Writer) int {
 	// Command line parsing can now happen
 	vars := kong.Vars{"version": version.Version}
 	ctx := kong.Parse(&CLI,
+		kong.DefaultEnvars(version.Name),
 		kong.Description(version.Description),
 		kong.Configuration(kongutil.Hybrid, configDirs...), vars)
 

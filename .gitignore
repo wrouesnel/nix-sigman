@@ -1,7 +1,6 @@
 .idea
 .vscode
 node_modules
-/mirrorserv
 /bin
 /.bin
 /.coverage

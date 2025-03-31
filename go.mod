@@ -14,7 +14,9 @@ require (
 	github.com/wrouesnel/kongutil v0.0.0-20250331082405-8d531c9e23eb
 	go.uber.org/zap v1.27.0
 	golang.org/x/mod v0.24.0
+	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c
 	gopkg.in/yaml.v3 v3.0.1
+	zombiezen.com/go/nix v0.0.0-20240811171638-2409f347632d
 )
 
 require (
@@ -32,6 +34,8 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/huandu/xstrings v1.3.3 // indirect
 	github.com/imdario/mergo v0.3.13 // indirect
+	github.com/kr/pretty v0.3.1 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/goveralls v0.0.12 // indirect
