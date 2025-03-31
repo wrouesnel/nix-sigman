@@ -10,3 +10,8 @@ type VerifyConfig struct {
 	IncludePrivateKeys bool     `help:"Private Keys should also be used for trust" default:"false"`
 	TrustedKeys        []string `help:"Names of keys to sign with (default all)" default:"*"`
 }
+
+// Sign implements (re)-signing a NARInfo file
+func Sign() {
+	
+}

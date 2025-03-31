@@ -27,11 +27,24 @@ var CLI struct {
 		Format string `help:"logging format (${enum})" enum:"console,json" default:"console"`
 	} `embed:"" prefix:"log-"`
 
-	PrivateKeys []string `help:"Private Key Files" type:"path"`
-	PublicKeys  []string `help:"Trusted Public Keys" type:"path"`
+	PrivateKeyFiles []string `help:"Private Key Files" type:"existingfile"`
+	PublicKeysFiles []string `help:"Public Key Files" type:"existingfile"`
+
+	PrivateKeys []string `help:"Private Keys"`
+	PublicKeys  []string `help:"Public Keys"`
 
 	Debug struct {
-		Fingerprint struct{} `cmd:"" help:"Generate the fingerprint for a NarInfo file"`
+		Fingerprint struct {
+			Paths []string `arg:"" help:"NARInfo files" type:"existingfile" `
+		} `cmd:"" help:"Generate the fingerprint for a NARInfo files"`
+		Sign struct {
+			Paths []string `arg:"" help:"NARInfo files" type:"existingfile" `
+		} `cmd:"" help:"Generate signatures for NARInfo files"`
+		GenerateKey struct {
+			Name string `arg:"" help:"Name of the key"`
+		} `cmd:"" help:"Generate a new key to stdout"`
+		PublicKey struct {
+		} `cmd:"" help:"Get public key from supplied key on stdin"`
 	} `cmd:""`
 
 	Sign   SignConfig   `cmd:"" help:"Sign a Nix archive"`
@@ -41,7 +54,7 @@ var CLI struct {
 // Entrypoint is the real application entrypoint. This structure allows test packages to E2E-style tests invoking commmands
 // as though they are on the command line, but using built-in coverage tools. Stub-main under the `cmd` package calls this
 // function.
-func Entrypoint(stdOut io.Writer, stdErr io.Writer) int {
+func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 
@@ -90,7 +103,7 @@ func Entrypoint(stdOut io.Writer, stdErr io.Writer) int {
 	zap.ReplaceGlobals(logger)
 
 	// Emit deferred logs
-	logger.Info("Using config paths", zap.Strings("configDirs", configDirs))
+	logger.Debug("Using config paths", zap.Strings("configDirs", configDirs))
 	for _, line := range deferredLogs {
 		logger.Error(line)
 	}
@@ -98,10 +111,10 @@ func Entrypoint(stdOut io.Writer, stdErr io.Writer) int {
 	//logger.Info("Configuring asset handling", zap.Bool("use-filesystem", CLI.Assets.UseFilesystem))
 	//assets.UseFilesystem(CLI.Assets.UseFilesystem)
 
-	if err := dispatchCommands(ctx, sigCtx, stdOut); err != nil {
+	if err := dispatchCommands(ctx, sigCtx, stdIn, stdOut); err != nil {
 		logger.Error("Error from command", zap.Error(err))
 	}
 
-	logger.Info("Exiting normally")
+	logger.Debug("Exiting normally")
 	return 0
 }

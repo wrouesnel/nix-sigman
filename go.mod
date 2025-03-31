@@ -26,6 +26,7 @@ require (
 	github.com/abice/go-enum v0.6.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
 	github.com/dsnet/compress v0.0.1 // indirect
+	github.com/fatih/color v1.18.0 // indirect
 	github.com/frankban/quicktest v1.14.6 // indirect
 	github.com/goccy/go-yaml v1.17.0 // indirect
 	github.com/golang/mock v1.6.0 // indirect

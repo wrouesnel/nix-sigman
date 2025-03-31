@@ -8,185 +8,13 @@ import (
 	"fmt"
 	"github.com/samber/lo"
 	"os"
-	"path"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
 )
-import "zombiezen.com/go/nix/nixbase32"
 
-type NarHashSpec struct {
-	HashName string
-	Hash     []byte
-}
-
-func (n *NarHashSpec) UnmarshalText(text []byte) error {
-	parts := strings.SplitN(string(text), ":", 2)
-	decoded, err := nixbase32.DecodeString(parts[1])
-	if err != nil {
-		return err
-	}
-	n.Hash = decoded
-	n.HashName = parts[0]
-	return nil
-}
-
-func (n *NarHashSpec) MarshalText() (text []byte, err error) {
-	text = []byte(fmt.Sprintf("%s:%s", n.HashName, nixbase32.EncodeToString(n.Hash)))
-	return text, nil
-}
-
-func (n *NarHashSpec) String() string {
-	text, _ := n.MarshalText()
-	return string(text)
-}
-
-type NarInfo struct {
-	StorePath   string
-	URL         string
-	Compression string
-	FileHash    *NarHashSpec
-	FileSize    uint64
-	NarHash     *NarHashSpec
-	NarSize     uint64
-	References  []string
-	Deriver     string
-	Sig         map[string][]byte
-	sigOrder    []string
-	// extra is any extra fields we find
-	extra map[string]string
-	order []string
-}
-
-// Fingerprint returns the fingerpint which is signed/verified by a signature
-func (n *NarInfo) Fingerprint() []byte {
-	storeRoot := path.Dir(n.StorePath)
-	references := []string{}
-	for _, ref := range n.References {
-		references = append(references, path.Join(storeRoot, ref))
-	}
-	return []byte(fmt.Sprintf("1;%s;%s;%d;%s", n.StorePath, n.NarHash.String(), n.NarSize, strings.Join(references, ",")))
-}
-
-func (n *NarInfo) UnmarshalText(text []byte) error {
-	n.extra = map[string]string{}
-	n.order = make([]string, 0)
-	n.References = make([]string, 0)
-	n.Sig = make(map[string][]byte)
-	n.sigOrder = make([]string, 0)
-
-	narLines := strings.Split(string(text), "\n")
-	for _, line := range narLines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			// Skip empty lines
-			continue
-		}
-		parts := strings.SplitN(line, ": ", 2)
-		if len(parts) != 2 {
-			return fmt.Errorf("corrupt line: %s", line)
-		}
-		field := strings.TrimSpace(parts[0])
-		switch field {
-		case "StorePath":
-			n.StorePath = parts[1]
-
-		case "URL":
-			n.URL = parts[1]
-
-		case "Compression":
-			n.Compression = parts[1]
-
-		case "FileHash":
-			hashspec := &NarHashSpec{}
-			if err := hashspec.UnmarshalText([]byte(parts[1])); err != nil {
-				return err
-			}
-			n.FileHash = hashspec
-
-		case "FileSize":
-			result, err := strconv.ParseUint(parts[1], 10, 64)
-			if err != nil {
-				return err
-			}
-			n.FileSize = result
-
-		case "NarHash":
-			hashspec := &NarHashSpec{}
-			if err := hashspec.UnmarshalText([]byte(parts[1])); err != nil {
-				return err
-			}
-			n.NarHash = hashspec
-
-		case "NarSize":
-			result, err := strconv.ParseUint(parts[1], 10, 64)
-			if err != nil {
-				return err
-			}
-			n.NarSize = result
-
-		case "References":
-			n.References = strings.Split(parts[1], " ")
-
-		case "Deriver":
-			n.Deriver = parts[1]
-
-		case "Sig":
-			signatures := strings.Split(parts[1], " ")
-			for _, sig := range signatures {
-				sigparts := strings.SplitN(sig, ":", 2)
-				sigbytes, err := base64.StdEncoding.DecodeString(sigparts[1])
-				if err != nil {
-					return err
-				}
-				n.Sig[sigparts[0]] = sigbytes
-				n.sigOrder = append(n.sigOrder, sigparts[0])
-			}
-
-		default:
-			n.order = append(n.order, field)
-			n.extra[field] = parts[1]
-		}
-	}
-	return nil
-}
-
-func (n *NarInfo) MarshalText() (text []byte, err error) {
-	lines := []string{}
-
-	lines = append(lines, fmt.Sprintf("StorePath: %s", n.StorePath))
-	lines = append(lines, fmt.Sprintf("URL: %s", n.URL))
-	lines = append(lines, fmt.Sprintf("Compression: %s", n.Compression))
-	lines = append(lines, fmt.Sprintf("FileHash: %s", n.FileHash.String()))
-	lines = append(lines, fmt.Sprintf("FileSize: %d", n.FileSize))
-	lines = append(lines, fmt.Sprintf("NarHash: %s", n.NarHash.String()))
-	lines = append(lines, fmt.Sprintf("NarSize: %d", n.NarSize))
-	lines = append(lines, fmt.Sprintf("References: %s", strings.Join(n.References, " ")))
-	lines = append(lines, fmt.Sprintf("Deriver: %s", n.Deriver))
-
-	unorderedSigs := lo.OmitByKeys(n.Sig, n.sigOrder)
-	trailingSigs := []string{}
-	for name, sig := range unorderedSigs {
-		trailingSigs = append(trailingSigs, fmt.Sprintf("%s:%s", name, base64.StdEncoding.EncodeToString(sig)))
-	}
-	sort.Strings(trailingSigs)
-
-	sigs := []string{}
-	for _, name := range n.sigOrder {
-		if sig, ok := n.Sig[name]; ok {
-			sigs = append(sigs, fmt.Sprintf("%s:%s", name, base64.StdEncoding.EncodeToString(sig)))
-		}
-
-	}
-	sigs = append(sigs, trailingSigs...)
-
-	lines = append(lines, fmt.Sprintf("Sig: %s", strings.Join(sigs, " ")))
-	lines = append(lines, "")
-
-	text = []byte(strings.Join(lines, "\n"))
-	err = nil
-	return
+type KeyIdentity struct {
+	Name      string
+	PublicKey string
 }
 
 type NixSigMan struct {
@@ -195,14 +23,17 @@ type NixSigMan struct {
 	publicKeys map[string][]string
 	// privateKeys is the map of loaded private keys
 	privateKeys map[string][]string
+	// privateKeysByPublic is a map of the private keys by their public part
+	privateKeysByPublic map[string]string
 }
 
 // NewNixSignatureManager initializes a new signature manager
 func NewNixSignatureManager() *NixSigMan {
 	return &NixSigMan{
-		m:           &sync.Mutex{},
-		publicKeys:  make(map[string][]string),
-		privateKeys: make(map[string][]string),
+		m:                   &sync.Mutex{},
+		publicKeys:          make(map[string][]string),
+		privateKeys:         make(map[string][]string),
+		privateKeysByPublic: make(map[string]string),
 	}
 }
 
@@ -237,6 +68,99 @@ func (n *NixSigMan) Verify(ninfo *NarInfo) (verified bool) {
 	return len(validKeys) > 0
 }
 
+func (n *NixSigMan) ListPrivateKeys() []KeyIdentity {
+	n.m.Lock()
+	defer n.m.Unlock()
+
+	allNames := []KeyIdentity{}
+
+	for privateKey, names := range n.privateKeys {
+		loadedKey := ed25519.PrivateKey(lo.Must(base64.StdEncoding.DecodeString(privateKey)))
+		publicBytes := loadedKey.Public().(ed25519.PublicKey)
+		for _, name := range names {
+			allNames = append(allNames, KeyIdentity{
+				Name:      name,
+				PublicKey: base64.StdEncoding.EncodeToString(publicBytes),
+			})
+		}
+
+	}
+
+	return allNames
+}
+
+func (n *NixSigMan) ListPublicKeys() []KeyIdentity {
+	n.m.Lock()
+	defer n.m.Unlock()
+
+	allNames := []KeyIdentity{}
+
+	for publicKey, names := range n.publicKeys {
+		for _, name := range names {
+			allNames = append(allNames, KeyIdentity{
+				Name:      name,
+				PublicKey: publicKey,
+			})
+		}
+
+	}
+
+	return allNames
+}
+
+func (n *NixSigMan) PrivateKeysCount() int {
+	n.m.Lock()
+	defer n.m.Unlock()
+	return len(n.privateKeys)
+}
+
+func (n *NixSigMan) PublicKeysCount() int {
+	n.m.Lock()
+	defer n.m.Unlock()
+	return len(n.publicKeys)
+}
+
+// Sign NarInfo files. Does not verify the NARInfo actually matches the file it
+// refers to. Key names may be the string name or a public key matching a known
+// private key.
+func (n *NixSigMan) Sign(ninfo *NarInfo, keyNames []string) []string {
+	n.m.Lock()
+	defer n.m.Unlock()
+
+	signingKeys := []ed25519.PrivateKey{}
+
+	for _, name := range keyNames {
+		// Check for matching public key first
+		if privKey, found := n.privateKeysByPublic[name]; found {
+			signingKeys = append(signingKeys, lo.Must(base64.StdEncoding.DecodeString(privKey)))
+			continue
+		}
+		// Then search by name
+		for privKey, names := range n.privateKeys {
+			for _, knownName := range names {
+				if name == knownName {
+					signingKeys = append(signingKeys, lo.Must(base64.StdEncoding.DecodeString(privKey)))
+				}
+			}
+		}
+	}
+
+	// Found the signing keys. Calculate the signatures.
+	signatures := []string{}
+	for idx, key := range signingKeys {
+		signature := base64.StdEncoding.EncodeToString(lo.Must(key.Sign(nil, ninfo.Fingerprint(), &ed25519.Options{})))
+		// Find the key and add the name
+		if names, found := n.privateKeys[base64.StdEncoding.EncodeToString(key)]; found {
+			for _, name := range names {
+				signatures = append(signatures, fmt.Sprintf("%s:%s", name, signature))
+			}
+		} else {
+			signatures = append(signatures, fmt.Sprintf("unknown-%d:%s", idx, signature))
+		}
+	}
+	return signatures
+}
+
 func (n *NixSigMan) LoadPublicKeyFromString(key string) error {
 	n.m.Lock()
 	defer n.m.Unlock()
@@ -268,10 +192,13 @@ func (n *NixSigMan) LoadPrivateKeyFromString(key string) error {
 		return errors.New("invalid private key string")
 	}
 
+	var publicKey string
 	if privKey, err := base64.StdEncoding.DecodeString(parts[1]); err != nil {
 		return errors.New("could not decode private key string")
 	} else if len(privKey) != 64 {
 		return fmt.Errorf("bad private key length (want 64 bytes got %d bytes)", len(privKey))
+	} else {
+		publicKey = base64.StdEncoding.EncodeToString(ed25519.PrivateKey(privKey).Public().(ed25519.PublicKey))
 	}
 
 	if _, ok := n.privateKeys[parts[1]]; !ok {
@@ -279,6 +206,7 @@ func (n *NixSigMan) LoadPrivateKeyFromString(key string) error {
 	}
 
 	n.privateKeys[parts[1]] = append(n.privateKeys[parts[1]], parts[0])
+	n.privateKeysByPublic[publicKey] = parts[1]
 
 	return nil
 }
