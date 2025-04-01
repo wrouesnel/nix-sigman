@@ -156,6 +156,14 @@ type NamedPrivateKey struct {
 	Key     ed25519.PrivateKey
 }
 
+// PublicKey returns the public key form of the private key
+func (n *NamedPrivateKey) PublicKey() NamedPublicKey {
+	return NamedPublicKey{
+		KeyName: n.KeyName,
+		Key:     n.Key.Public().(ed25519.PublicKey),
+	}
+}
+
 func (n *NamedPrivateKey) UnmarshalText(text []byte) error {
 	keyName, encodedKey, ok := bytes.Cut(text, []byte(":"))
 	if !ok {

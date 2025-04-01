@@ -212,7 +212,11 @@ func (n *NarInfo) MarshalText() (text []byte, err error) {
 	}
 
 	outputLines["Sig"] = lo.Reduce(n.Sig, func(agg string, item NixSignature, index int) string {
-		return fmt.Sprintf("%s %s", agg, item.String())
+		if agg != "" {
+			return fmt.Sprintf("%s %s", agg, item.String())
+		} else {
+			return item.String()
+		}
 	}, "")
 
 	for key, value := range n.Extra {
@@ -223,14 +227,17 @@ func (n *NarInfo) MarshalText() (text []byte, err error) {
 	unorderedKeys := lo.OmitByKeys(outputLines, n.order)
 
 	for _, key := range n.order {
+		text = append(text, []byte(fmt.Sprintf("%s: ", key))...)
 		text = append(text, []byte(outputLines[key])...)
 		text = append(text, []byte("\n")...)
 		if key == "URL" && lo.HasKey(unorderedKeys, "Compression") {
+			text = append(text, []byte(fmt.Sprintf("%s: ", "Compression"))...)
 			text = append(text, []byte(unorderedKeys["Compression"])...)
 			text = append(text, []byte("\n")...)
 			unorderedKeys = lo.OmitByKeys(unorderedKeys, []string{"Compression"})
 		}
 		if key == "References" && lo.HasKey(unorderedKeys, "Deriver") {
+			text = append(text, []byte(fmt.Sprintf("%s: ", "Deriver"))...)
 			text = append(text, []byte(unorderedKeys["Deriver"])...)
 			text = append(text, []byte("\n")...)
 			unorderedKeys = lo.OmitByKeys(unorderedKeys, []string{"Deriver"})
@@ -242,6 +249,7 @@ func (n *NarInfo) MarshalText() (text []byte, err error) {
 	sort.Strings(remainingKeys)
 
 	for _, key := range remainingKeys {
+		text = append(text, []byte(fmt.Sprintf("%s: ", key))...)
 		text = append(text, []byte(unorderedKeys[key])...)
 		text = append(text, []byte("\n")...)
 	}
