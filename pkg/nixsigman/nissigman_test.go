@@ -105,9 +105,21 @@ func (s *NixSuite) TestNarInfoEmptyReferences(c *C) {
 	err := ninfo.UnmarshalText([]byte(narInfoEmptyReferences))
 	c.Assert(err, IsNil)
 
+	c.Assert(len(ninfo.References), Equals, 0)
+
 	content, err := ninfo.MarshalText()
 	c.Assert(err, IsNil)
 	c.Assert(string(content), DeepEquals, narInfoEmptyReferences)
+}
+
+func (s *NixSuite) TestNarInfoFingerprintEmptyReferences(c *C) {
+	ninfo := &NarInfo{}
+	err := ninfo.UnmarshalText([]byte(narInfoEmptyReferences))
+	c.Assert(err, IsNil)
+
+	// Ensure the fingerprint is correct for empty references
+	fingerprint := string(ninfo.Fingerprint())
+	c.Assert(fingerprint, Equals, "1;/nix/store/58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37;sha256:07pyb1bl3q4ivh86vx6vjjivfsm1hqrwdfm5d2x8kk7qzysl5j4j;1654408;")
 }
 
 func (s *NixSuite) TestNarInfoWithExtraKeys(c *C) {

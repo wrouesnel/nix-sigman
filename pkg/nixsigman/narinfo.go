@@ -89,10 +89,6 @@ func (n *NarInfo) UnmarshalText(text []byte) error {
 		}
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) != 2 {
-			if parts[0] == "References" {
-				// It's allowcable for references to be missing
-				continue
-			}
 			return fmt.Errorf("corrupt line: %s", line)
 		}
 		parts[1] = strings.TrimSpace(parts[1])
@@ -136,12 +132,18 @@ func (n *NarInfo) UnmarshalText(text []byte) error {
 			n.NarSize = result
 
 		case "References":
+			if parts[1] == "" {
+				continue
+			}
 			n.References = strings.Split(parts[1], " ")
 
 		case "Deriver":
 			n.Deriver = parts[1]
 
 		case "Sig":
+			if parts[1] == "" {
+				continue
+			}
 			signatures := strings.Split(parts[1], " ")
 			for _, sig := range signatures {
 				if err := n.unmarshalSignature(sig); err != nil {
