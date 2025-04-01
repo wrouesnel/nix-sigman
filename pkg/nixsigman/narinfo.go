@@ -173,9 +173,16 @@ func (n *NarInfo) MarshalText() (text []byte, err error) {
 	lines = append(lines, fmt.Sprintf("FileSize: %d", n.FileSize))
 	lines = append(lines, fmt.Sprintf("NarHash: %s", n.NarHash.String()))
 	lines = append(lines, fmt.Sprintf("NarSize: %d", n.NarSize))
-	lines = append(lines, fmt.Sprintf("References: %s", strings.Join(n.References, " ")))
-	lines = append(lines, fmt.Sprintf("Deriver: %s", n.Deriver))
+	if n.References != nil {
+		if len(n.References) != 0 {
+			lines = append(lines, fmt.Sprintf("References: %s", strings.Join(n.References, " ")))
+		}
+	}
+	if n.Deriver != "" {
+		lines = append(lines, fmt.Sprintf("Deriver: %s", n.Deriver))
+	}
 
+	// Handle signatures
 	unorderedSigs := lo.OmitByKeys(n.Sig, n.sigOrder)
 	trailingSigs := []string{}
 	for name, sig := range unorderedSigs {
@@ -193,6 +200,15 @@ func (n *NarInfo) MarshalText() (text []byte, err error) {
 	sigs = append(sigs, trailingSigs...)
 
 	lines = append(lines, fmt.Sprintf("Sig: %s", strings.Join(sigs, " ")))
+
+	// Add any keys we don't recognize
+	for _, unknownField := range n.order {
+		if fieldValue, found := n.extra[unknownField]; found {
+			lines = append(lines, fmt.Sprintf("%s: %s", unknownField, fieldValue))
+		}
+	}
+
+	// Ensure file will be newline terminated
 	lines = append(lines, "")
 
 	text = []byte(strings.Join(lines, "\n"))

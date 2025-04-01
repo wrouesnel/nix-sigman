@@ -50,6 +50,9 @@ func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCl
 		sc := bufio.NewScanner(stdIn)
 		for sc.Scan() {
 			line := strings.TrimSpace(sc.Text())
+			if line == "" {
+				continue
+			}
 			parts := strings.SplitN(line, ":", 2)
 			publicPart := base64.StdEncoding.EncodeToString(ed25519.PrivateKey(lo.Must(base64.StdEncoding.DecodeString(parts[1]))).Public().(ed25519.PublicKey))
 			stdOut.Write([]byte(fmt.Sprintf("%s:%s\n", parts[0], publicPart)))
