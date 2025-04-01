@@ -17,6 +17,10 @@ type KeyIdentity struct {
 	PublicKey string
 }
 
+func (k *KeyIdentity) String() string {
+	return fmt.Sprintf("%s:%s", k.Name, k.PublicKey)
+}
+
 type NixSigMan struct {
 	m *sync.Mutex
 	// publickeys is the map of loaded public keys
@@ -38,12 +42,13 @@ func NewNixSignatureManager() *NixSigMan {
 }
 
 // Verify NarInfo signatures. Returns the list of keys which matched, along with their names.
-func (n *NixSigMan) Verify(ninfo *NarInfo) (verified bool) {
+func (n *NixSigMan) Verify(ninfo *NarInfo) (verified bool, validKeys []KeyIdentity, invalidKeys []KeyIdentity) {
 	n.m.Lock()
 	defer n.m.Unlock()
 
 	// TODO: track valid keys, misidentified keys, and failing keys
-	validKeys := make(map[string][]string)
+	validKeys = []KeyIdentity{}
+	invalidKeys = []KeyIdentity{}
 	// No info, no matches
 	if ninfo == nil {
 		return
@@ -53,19 +58,31 @@ func (n *NixSigMan) Verify(ninfo *NarInfo) (verified bool) {
 		// this is protected on load so it always succeeds
 		loadedKey := ed25519.PublicKey(lo.Must(base64.StdEncoding.DecodeString(publicKey)))
 
+		keyValidated := false
 		for _, signature := range ninfo.Sig {
 			// TODO: check for signature name matching i.e. host != cert
 			if ed25519.Verify(loadedKey, ninfo.Fingerprint(), signature) {
-				// Verified
-				if _, ok := validKeys[publicKey]; !ok {
-					validKeys[publicKey] = make([]string, 0)
+				keyValidated = true
+				for _, name := range names {
+					validKeys = append(validKeys, KeyIdentity{
+						Name:      name,
+						PublicKey: publicKey,
+					})
 				}
-				validKeys[publicKey] = append(validKeys[publicKey], names...)
+				break
+			}
+		}
+		if !keyValidated {
+			for _, name := range names {
+				invalidKeys = append(invalidKeys, KeyIdentity{
+					Name:      name,
+					PublicKey: publicKey,
+				})
 			}
 		}
 	}
 
-	return len(validKeys) > 0
+	return len(validKeys) > 0, validKeys, invalidKeys
 }
 
 func (n *NixSigMan) ListPrivateKeys() []KeyIdentity {
@@ -181,6 +198,29 @@ func (n *NixSigMan) LoadPublicKeyFromString(key string) error {
 
 	n.publicKeys[parts[1]] = append(n.publicKeys[parts[1]], parts[0])
 
+	return nil
+}
+
+func (n *NixSigMan) LoadPublicKeyFromPrivateKey(key string) error {
+	n.m.Lock()
+	defer n.m.Unlock()
+	parts := strings.SplitN(key, ":", 2)
+	if len(parts) != 2 {
+		return errors.New("invalid private key string")
+	}
+
+	if privKey, err := base64.StdEncoding.DecodeString(parts[1]); err != nil {
+		return errors.New("could not decode private key string")
+	} else {
+		if err != nil {
+			return errors.New("invalid private key string")
+		}
+		publicKey := base64.StdEncoding.EncodeToString(ed25519.PrivateKey(privKey).Public().(ed25519.PublicKey))
+		if _, found := n.publicKeys[publicKey]; !found {
+			n.publicKeys[publicKey] = make([]string, 0)
+		}
+		n.publicKeys[publicKey] = append(n.publicKeys[publicKey], parts[0])
+	}
 	return nil
 }
 

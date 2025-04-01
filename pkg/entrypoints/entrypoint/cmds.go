@@ -32,9 +32,8 @@ func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCl
 	logger := zap.L().With(zap.String("command", ctx.Command()))
 
 	switch ctx.Command() {
-	case "sign":
-		err = &ErrCommandNotImplemented{Command: ctx.Command()}
-		logger.Error("Command not implemented")
+	case "sign <nar-info-files>":
+		err = Sign(logger)
 
 	case "verify":
 		err = &ErrCommandNotImplemented{Command: ctx.Command()}

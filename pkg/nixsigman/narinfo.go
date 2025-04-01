@@ -55,6 +55,14 @@ type NarInfo struct {
 	order []string
 }
 
+// AddSignatureFromString adds a signature from the given string
+func (n *NarInfo) AddSignatureFromString(sigString string) error {
+	if err := n.unmarshalSignature(sigString); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Fingerprint returns the fingerpint which is signed/verified by a signature
 func (n *NarInfo) Fingerprint() []byte {
 	storeRoot := path.Dir(n.StorePath)
@@ -131,13 +139,9 @@ func (n *NarInfo) UnmarshalText(text []byte) error {
 		case "Sig":
 			signatures := strings.Split(parts[1], " ")
 			for _, sig := range signatures {
-				sigparts := strings.SplitN(sig, ":", 2)
-				sigbytes, err := base64.StdEncoding.DecodeString(sigparts[1])
-				if err != nil {
+				if err := n.unmarshalSignature(sig); err != nil {
 					return err
 				}
-				n.Sig[sigparts[0]] = sigbytes
-				n.sigOrder = append(n.sigOrder, sigparts[0])
 			}
 
 		default:
@@ -145,6 +149,17 @@ func (n *NarInfo) UnmarshalText(text []byte) error {
 			n.extra[field] = parts[1]
 		}
 	}
+	return nil
+}
+
+func (n *NarInfo) unmarshalSignature(sig string) error {
+	sigparts := strings.SplitN(sig, ":", 2)
+	sigbytes, err := base64.StdEncoding.DecodeString(sigparts[1])
+	if err != nil {
+		return err
+	}
+	n.Sig[sigparts[0]] = sigbytes
+	n.sigOrder = append(n.sigOrder, sigparts[0])
 	return nil
 }
 
