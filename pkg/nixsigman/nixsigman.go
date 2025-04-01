@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/samber/lo"
+	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"os"
 	"strings"
 	"sync"
@@ -42,7 +43,7 @@ func NewNixSignatureManager() *NixSigMan {
 }
 
 // Verify NarInfo signatures. Returns the list of keys which matched, along with their names.
-func (n *NixSigMan) Verify(ninfo *NarInfo) (verified bool, validKeys []KeyIdentity, invalidKeys []KeyIdentity) {
+func (n *NixSigMan) Verify(ninfo *nixtypes.NarInfo) (verified bool, validKeys []KeyIdentity, invalidKeys []KeyIdentity) {
 	n.m.Lock()
 	defer n.m.Unlock()
 
@@ -140,7 +141,7 @@ func (n *NixSigMan) PublicKeysCount() int {
 // Sign NarInfo files. Does not verify the NARInfo actually matches the file it
 // refers to. Key names may be the string name or a public key matching a known
 // private key.
-func (n *NixSigMan) Sign(ninfo *NarInfo, keyNames []string) []string {
+func (n *NixSigMan) Sign(ninfo *nixtypes.NarInfo, keyNames []string) []string {
 	n.m.Lock()
 	defer n.m.Unlock()
 

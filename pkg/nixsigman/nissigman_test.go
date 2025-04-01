@@ -2,6 +2,7 @@ package nixsigman
 
 import (
 	"github.com/wrouesnel/nix-sigman/pkg/nixkeys"
+	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,7 +21,7 @@ func (s *NixSuite) TestNarHashMarshalling(c *C) {
 	testBytes := []byte{60, 215, 161, 139, 144, 189, 79, 60, 222, 12, 31, 29, 145, 170, 159, 207, 222, 177, 204, 186, 185, 222, 113, 206, 109, 25, 171, 69, 176, 202, 141, 217}
 	testHash := "sha256:1ncdraq4baqrdp773pmrpb6b3pngkym9278z1kg3qkxxj25s3mrw"
 
-	hashSpec := &NarHashSpec{}
+	hashSpec := &nixtypes.TypedNixHash{}
 	err := hashSpec.UnmarshalText([]byte(testHash))
 	c.Assert(err, IsNil)
 	c.Assert(hashSpec.Hash, DeepEquals, testBytes)
@@ -96,7 +97,7 @@ func (s *NixSuite) TestValidatePublicKey(c *C) {
 	err := sigman.LoadPublicKeyFromString(publicKey)
 	c.Assert(err, IsNil)
 
-	ninfo := &NarInfo{}
+	ninfo := &nixtypes.NarInfo{}
 	err = ninfo.UnmarshalText([]byte(narInfo))
 	c.Assert(err, IsNil)
 
@@ -113,7 +114,7 @@ func (s *NixSuite) TestWithNewPrivateKey(c *C) {
 	err = sigman.LoadPrivateKeyFromString(privateKey)
 	c.Assert(err, IsNil)
 
-	ninfo := &NarInfo{}
+	ninfo := &nixtypes.NarInfo{}
 	err = ninfo.UnmarshalText([]byte(narInfo))
 	c.Assert(err, IsNil)
 
@@ -132,7 +133,7 @@ func (s *NixSuite) TestWithNewPrivateKey(c *C) {
 }
 
 func (s *NixSuite) TestNarInfo(c *C) {
-	ninfo := &NarInfo{}
+	ninfo := &nixtypes.NarInfo{}
 	err := ninfo.UnmarshalText([]byte(narInfo))
 	c.Assert(err, IsNil)
 
@@ -142,7 +143,7 @@ func (s *NixSuite) TestNarInfo(c *C) {
 }
 
 func (s *NixSuite) TestNarInfoEmptyReferences(c *C) {
-	ninfo := &NarInfo{}
+	ninfo := &nixtypes.NarInfo{}
 	err := ninfo.UnmarshalText([]byte(narInfoEmptyReferences))
 	c.Assert(err, IsNil)
 
@@ -154,7 +155,7 @@ func (s *NixSuite) TestNarInfoEmptyReferences(c *C) {
 }
 
 func (s *NixSuite) TestNarInfoFingerprintWithReferences(c *C) {
-	ninfo := &NarInfo{}
+	ninfo := &nixtypes.NarInfo{}
 	err := ninfo.UnmarshalText([]byte(narInfo))
 	c.Assert(err, IsNil)
 
@@ -164,7 +165,7 @@ func (s *NixSuite) TestNarInfoFingerprintWithReferences(c *C) {
 }
 
 func (s *NixSuite) TestNarInfoFingerprintEmptyReferences(c *C) {
-	ninfo := &NarInfo{}
+	ninfo := &nixtypes.NarInfo{}
 	err := ninfo.UnmarshalText([]byte(narInfoEmptyReferences))
 	c.Assert(err, IsNil)
 
@@ -174,7 +175,7 @@ func (s *NixSuite) TestNarInfoFingerprintEmptyReferences(c *C) {
 }
 
 func (s *NixSuite) TestNarInfoWithExtraKeys(c *C) {
-	ninfo := &NarInfo{}
+	ninfo := &nixtypes.NarInfo{}
 	err := ninfo.UnmarshalText([]byte(narInfoWithExtraKeys))
 	c.Assert(err, IsNil)
 
@@ -184,7 +185,7 @@ func (s *NixSuite) TestNarInfoWithExtraKeys(c *C) {
 }
 
 func (s *NixSuite) TestSignatureChecking(c *C) {
-	ninfo := &NarInfo{}
+	ninfo := &nixtypes.NarInfo{}
 	err := ninfo.UnmarshalText([]byte(narInfo))
 	c.Assert(err, IsNil)
 
