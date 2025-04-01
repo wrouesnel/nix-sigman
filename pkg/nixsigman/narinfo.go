@@ -87,10 +87,15 @@ func (n *NarInfo) UnmarshalText(text []byte) error {
 			// Skip empty lines
 			continue
 		}
-		parts := strings.SplitN(line, ": ", 2)
+		parts := strings.SplitN(line, ":", 2)
 		if len(parts) != 2 {
+			if parts[0] == "References" {
+				// It's allowcable for references to be missing
+				continue
+			}
 			return fmt.Errorf("corrupt line: %s", line)
 		}
+		parts[1] = strings.TrimSpace(parts[1])
 		field := strings.TrimSpace(parts[0])
 		switch field {
 		case "StorePath":
@@ -173,11 +178,7 @@ func (n *NarInfo) MarshalText() (text []byte, err error) {
 	lines = append(lines, fmt.Sprintf("FileSize: %d", n.FileSize))
 	lines = append(lines, fmt.Sprintf("NarHash: %s", n.NarHash.String()))
 	lines = append(lines, fmt.Sprintf("NarSize: %d", n.NarSize))
-	if n.References != nil {
-		if len(n.References) != 0 {
-			lines = append(lines, fmt.Sprintf("References: %s", strings.Join(n.References, " ")))
-		}
-	}
+	lines = append(lines, fmt.Sprintf("References: %s", strings.Join(n.References, " ")))
 	if n.Deriver != "" {
 		lines = append(lines, fmt.Sprintf("Deriver: %s", n.Deriver))
 	}

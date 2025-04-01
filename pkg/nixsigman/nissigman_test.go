@@ -64,6 +64,18 @@ Deriver: cfp8jh04f3jfdcjskw2p64ri3w6njndm-bash-5.2p37.drv
 Sig: cache.nixos.org-1:jmkQzt2cr2aaXwrftMjybjNktqNZXcb+6LR8auhzEnIGzU9t6A3HU8Y67vraZJpgJ90XPNfkYiqUvXs5yiomAQ==
 `
 
+const narInfoEmptyReferences = `StorePath: /nix/store/58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37
+URL: nar/1ncdraq4baqrdp773pmrpb6b3pngkym9278z1kg3qkxxj25s3mrw.nar.xz
+Compression: xz
+FileHash: sha256:1ncdraq4baqrdp773pmrpb6b3pngkym9278z1kg3qkxxj25s3mrw
+FileSize: 445184
+NarHash: sha256:07pyb1bl3q4ivh86vx6vjjivfsm1hqrwdfm5d2x8kk7qzysl5j4j
+NarSize: 1654408
+References: 
+Deriver: cfp8jh04f3jfdcjskw2p64ri3w6njndm-bash-5.2p37.drv
+Sig: cache.nixos.org-1:jmkQzt2cr2aaXwrftMjybjNktqNZXcb+6LR8auhzEnIGzU9t6A3HU8Y67vraZJpgJ90XPNfkYiqUvXs5yiomAQ==
+`
+
 const narInfoWithExtraKeys = `StorePath: /nix/store/58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37
 URL: nar/1ncdraq4baqrdp773pmrpb6b3pngkym9278z1kg3qkxxj25s3mrw.nar.xz
 Compression: xz
@@ -87,6 +99,17 @@ func (s *NixSuite) TestNarInfo(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(string(content), DeepEquals, narInfo)
 }
+
+func (s *NixSuite) TestNarInfoEmptyReferences(c *C) {
+	ninfo := &NarInfo{}
+	err := ninfo.UnmarshalText([]byte(narInfoEmptyReferences))
+	c.Assert(err, IsNil)
+
+	content, err := ninfo.MarshalText()
+	c.Assert(err, IsNil)
+	c.Assert(string(content), DeepEquals, narInfoEmptyReferences)
+}
+
 func (s *NixSuite) TestNarInfoWithExtraKeys(c *C) {
 	ninfo := &NarInfo{}
 	err := ninfo.UnmarshalText([]byte(narInfoWithExtraKeys))
