@@ -1,12 +1,15 @@
 package entrypoint
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"github.com/samber/lo"
 	"github.com/wrouesnel/nix-sigman/pkg/nixsigman"
 	"go.uber.org/zap"
+	"io"
 	"os"
+	"strings"
 )
 
 //nolint:gochecknoglobals
@@ -23,7 +26,7 @@ type VerifyConfig struct {
 }
 
 // Sign implements (re)-signing a NARInfo file
-func Sign(logger *zap.Logger) error {
+func Sign(logger *zap.Logger, stdIn io.ReadCloser) error {
 	manager, err := initializeNixSigMan(logger)
 	if err != nil {
 		logger.Error("Error initializing signature manager")
@@ -72,7 +75,53 @@ func Sign(logger *zap.Logger) error {
 		signingNames = append(signingNames, signingKey.Name)
 	}
 
+	filenameCh := make(chan string)
+	errorCh := make(chan error)
+	go fileSigner(logger, manager, signingNames, validationManager, filenameCh, errorCh)
+
+loop:
 	for _, filename := range CLI.Sign.NarInfoFiles {
+		select {
+		case err = <-errorCh:
+			break loop
+		default:
+		}
+		if filename == "-" {
+			sc := bufio.NewScanner(stdIn)
+			for sc.Scan() {
+				filename = strings.TrimSpace(sc.Text())
+				if filename == "" {
+					continue
+				}
+				select {
+				case err = <-errorCh:
+					break loop
+				default:
+				}
+				filenameCh <- filename
+			}
+			if sc.Err() != nil {
+				close(filenameCh)
+				return err
+			}
+			stdIn.Close()
+		} else {
+			filenameCh <- filename
+		}
+	}
+	close(filenameCh)
+
+	<-errorCh
+
+	return err
+}
+
+func fileSigner(logger *zap.Logger, manager *nixsigman.NixSigMan,
+	signingNames []string,
+	validationManager *nixsigman.NixSigMan,
+	filenameCh chan string, errCh chan<- error) {
+	defer close(errCh)
+	for filename := range filenameCh {
 		fl := logger.With(zap.String("path", filename))
 		ninfo, err := nixsigman.NewNarInfoFromFile(filename)
 		if err != nil {
@@ -88,33 +137,37 @@ func Sign(logger *zap.Logger) error {
 			for _, sig := range signatures {
 				fl.Debug("Adding signature to NARinfo", zap.String("signature", sig))
 				if err := ninfo.AddSignatureFromString(sig); err != nil {
-					return errors.New("failed to update signatures on NARinfo blob")
+					errCh <- errors.New("failed to update signatures on NARinfo blob")
+					return
 				}
 			}
 			// Output the new file
 			newName := fmt.Sprintf("%s.new", filename)
 			narBytes, err := ninfo.MarshalText()
 			if err != nil {
-				return err
+				errCh <- err
+				return
 			}
 			if err := os.WriteFile(newName, narBytes, os.FileMode(0777)); err != nil {
-				return err
+				errCh <- err
+				return
 			}
 			// Backup old file if needed
 			if CLI.Sign.BackupNARInfos {
 				fl.Info("Backing up original NARInfo file")
 				backupName := fmt.Sprintf("%s.bak", filename)
 				if err := os.Rename(filename, backupName); err != nil {
-					return err
+					errCh <- err
+					return
 				}
 			}
 			// Move the new file into place
 			if err := os.Rename(newName, filename); err != nil {
-				return err
+				errCh <- err
+				return
 			}
 		} else {
 			fl.Debug("Key signatures are up to date with signing keys")
 		}
 	}
-	return nil
 }

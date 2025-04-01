@@ -33,7 +33,7 @@ func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCl
 
 	switch ctx.Command() {
 	case "sign <nar-info-files>":
-		err = Sign(logger)
+		err = Sign(logger, stdIn)
 
 	case "verify":
 		err = &ErrCommandNotImplemented{Command: ctx.Command()}
