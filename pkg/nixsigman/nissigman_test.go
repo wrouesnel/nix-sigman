@@ -1,6 +1,7 @@
 package nixsigman
 
 import (
+	"github.com/wrouesnel/nix-sigman/pkg/nixkeys"
 	"os"
 	"path/filepath"
 	"testing"
@@ -90,6 +91,46 @@ CA: text:somevalue:whocares
 a reall bad feild: with a value
 `
 
+func (s *NixSuite) TestValidatePublicKey(c *C) {
+	sigman := NewNixSignatureManager()
+	err := sigman.LoadPublicKeyFromString(publicKey)
+	c.Assert(err, IsNil)
+
+	ninfo := &NarInfo{}
+	err = ninfo.UnmarshalText([]byte(narInfo))
+	c.Assert(err, IsNil)
+
+	verified, valid, invalid := sigman.Verify(ninfo)
+	c.Assert(verified, Equals, true)
+	c.Assert(len(valid), Equals, 1)
+	c.Assert(len(invalid), Equals, 0)
+}
+
+func (s *NixSuite) TestWithNewPrivateKey(c *C) {
+	sigman := NewNixSignatureManager()
+	privateKey, err := nixkeys.GeneratePrivateKey("test-key-0")
+	c.Assert(err, IsNil)
+	err = sigman.LoadPrivateKeyFromString(privateKey)
+	c.Assert(err, IsNil)
+
+	ninfo := &NarInfo{}
+	err = ninfo.UnmarshalText([]byte(narInfo))
+	c.Assert(err, IsNil)
+
+	signature := sigman.Sign(ninfo, []string{"test-key-0"})
+	err = ninfo.AddSignatureFromString(signature[0])
+	c.Assert(err, IsNil)
+
+	validMan := NewNixSignatureManager()
+	err = validMan.LoadPublicKeyFromPrivateKey(privateKey)
+	c.Assert(err, IsNil)
+
+	verified, valid, invalid := validMan.Verify(ninfo)
+	c.Assert(verified, Equals, true)
+	c.Assert(len(valid), Equals, 1)
+	c.Assert(len(invalid), Equals, 0)
+}
+
 func (s *NixSuite) TestNarInfo(c *C) {
 	ninfo := &NarInfo{}
 	err := ninfo.UnmarshalText([]byte(narInfo))
@@ -110,6 +151,16 @@ func (s *NixSuite) TestNarInfoEmptyReferences(c *C) {
 	content, err := ninfo.MarshalText()
 	c.Assert(err, IsNil)
 	c.Assert(string(content), DeepEquals, narInfoEmptyReferences)
+}
+
+func (s *NixSuite) TestNarInfoFingerprintWithReferences(c *C) {
+	ninfo := &NarInfo{}
+	err := ninfo.UnmarshalText([]byte(narInfo))
+	c.Assert(err, IsNil)
+
+	// Ensure the fingerprint is correct for empty references
+	fingerprint := string(ninfo.Fingerprint())
+	c.Assert(fingerprint, Equals, "1;/nix/store/58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37;sha256:07pyb1bl3q4ivh86vx6vjjivfsm1hqrwdfm5d2x8kk7qzysl5j4j;1654408;/nix/store/58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37,/nix/store/rmy663w9p7xb202rcln4jjzmvivznmz8-glibc-2.40-66")
 }
 
 func (s *NixSuite) TestNarInfoFingerprintEmptyReferences(c *C) {

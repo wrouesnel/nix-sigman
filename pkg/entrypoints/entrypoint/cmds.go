@@ -3,12 +3,10 @@ package entrypoint
 import (
 	"bufio"
 	"context"
-	"crypto/ed25519"
-	"encoding/base64"
 	"fmt"
 	"github.com/alecthomas/kong"
 	"github.com/fatih/color"
-	"github.com/samber/lo"
+	"github.com/wrouesnel/nix-sigman/pkg/nixkeys"
 	"github.com/wrouesnel/nix-sigman/pkg/nixsigman"
 	"go.uber.org/zap"
 	"io"
@@ -40,11 +38,12 @@ func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCl
 		logger.Error("Command not implemented")
 
 	case "debug generate-key <name>":
-		_, privKey, err := ed25519.GenerateKey(nil)
+		privateKey, err := nixkeys.GeneratePrivateKey(CLI.Debug.GenerateKey.Name)
 		if err != nil {
 			return err
 		}
-		stdOut.Write([]byte(fmt.Sprintf("%s:%s\n", CLI.Debug.GenerateKey.Name, base64.StdEncoding.EncodeToString(privKey))))
+		stdOut.Write([]byte(privateKey))
+		stdOut.Write([]byte("\n"))
 
 	case "debug public-key":
 		sc := bufio.NewScanner(stdIn)
@@ -53,9 +52,12 @@ func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCl
 			if line == "" {
 				continue
 			}
-			parts := strings.SplitN(line, ":", 2)
-			publicPart := base64.StdEncoding.EncodeToString(ed25519.PrivateKey(lo.Must(base64.StdEncoding.DecodeString(parts[1]))).Public().(ed25519.PublicKey))
-			stdOut.Write([]byte(fmt.Sprintf("%s:%s\n", parts[0], publicPart)))
+			publicKey, err := nixkeys.PublicKeyFromPrivateKey(line)
+			if err != nil {
+				return err
+			}
+			stdOut.Write([]byte(publicKey))
+			stdOut.Write([]byte("\n"))
 		}
 		if sc.Err() != nil {
 			return err

@@ -202,8 +202,6 @@ func (n *NixSigMan) LoadPublicKeyFromString(key string) error {
 }
 
 func (n *NixSigMan) LoadPublicKeyFromPrivateKey(key string) error {
-	n.m.Lock()
-	defer n.m.Unlock()
 	parts := strings.SplitN(key, ":", 2)
 	if len(parts) != 2 {
 		return errors.New("invalid private key string")
@@ -212,16 +210,9 @@ func (n *NixSigMan) LoadPublicKeyFromPrivateKey(key string) error {
 	if privKey, err := base64.StdEncoding.DecodeString(parts[1]); err != nil {
 		return errors.New("could not decode private key string")
 	} else {
-		if err != nil {
-			return errors.New("invalid private key string")
-		}
 		publicKey := base64.StdEncoding.EncodeToString(ed25519.PrivateKey(privKey).Public().(ed25519.PublicKey))
-		if _, found := n.publicKeys[publicKey]; !found {
-			n.publicKeys[publicKey] = make([]string, 0)
-		}
-		n.publicKeys[publicKey] = append(n.publicKeys[publicKey], parts[0])
+		return n.LoadPublicKeyFromString(fmt.Sprintf("%s:%s", parts[0], publicKey))
 	}
-	return nil
 }
 
 func (n *NixSigMan) LoadPrivateKeyFromString(key string) error {
