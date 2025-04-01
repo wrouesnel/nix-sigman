@@ -1,16 +1,11 @@
 package entrypoint
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"github.com/alecthomas/kong"
-	"github.com/fatih/color"
-	"github.com/wrouesnel/nix-sigman/pkg/nixkeys"
-	"github.com/wrouesnel/nix-sigman/pkg/nixsigman"
 	"go.uber.org/zap"
 	"io"
-	"strings"
 )
 
 type ErrCommandNotImplemented struct {
@@ -21,6 +16,21 @@ func (e ErrCommandNotImplemented) Error() string {
 	return fmt.Sprintf("%s not implemented", e.Command)
 }
 
+type ErrCommand struct {
+}
+
+func (e ErrCommand) Error() string {
+	return "command error"
+}
+
+// CmdContect packages common parameters for CLI commands
+type CmdContext struct {
+	logger *zap.Logger
+	ctx    context.Context
+	stdIn  io.ReadCloser
+	stdOut io.Writer
+}
+
 // Main command dispatcher for the program entrypoint. New commands should be added here, or they won't be
 // invocable.
 //
@@ -28,6 +38,13 @@ func (e ErrCommandNotImplemented) Error() string {
 func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCloser, stdOut io.Writer) error {
 	var err error
 	logger := zap.L().With(zap.String("command", ctx.Command()))
+
+	cmdCtx := CmdContext{
+		logger: logger,
+		ctx:    cliCtx,
+		stdIn:  stdIn,
+		stdOut: stdOut,
+	}
 
 	switch ctx.Command() {
 	case "sign <nar-info-files>":
@@ -38,60 +55,16 @@ func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCl
 		logger.Error("Command not implemented")
 
 	case "debug generate-key <name>":
-		privateKey, err := nixkeys.GeneratePrivateKey(CLI.Debug.GenerateKey.Name)
-		if err != nil {
-			return err
-		}
-		stdOut.Write([]byte(privateKey))
-		stdOut.Write([]byte("\n"))
+		err = DebugGenerateKey(cmdCtx)
 
 	case "debug public-key":
-		sc := bufio.NewScanner(stdIn)
-		for sc.Scan() {
-			line := strings.TrimSpace(sc.Text())
-			if line == "" {
-				continue
-			}
-			publicKey, err := nixkeys.PublicKeyFromPrivateKey(line)
-			if err != nil {
-				return err
-			}
-			stdOut.Write([]byte(publicKey))
-			stdOut.Write([]byte("\n"))
-		}
-		if sc.Err() != nil {
-			return err
-		}
+		err = DebugPublicKey(cmdCtx)
 
 	case "debug fingerprint <paths>":
-		for _, ninfoPath := range CLI.Debug.Fingerprint.Paths {
-			ninfo, err := nixsigman.NewNarInfoFromFile(ninfoPath)
-			if err != nil {
-				logger.Warn("Could not read supplied file", zap.String("path", ninfoPath), zap.Error(err))
-			}
-			fingerprint := string(ninfo.Fingerprint())
-			stdOut.Write([]byte(fmt.Sprintf("%s:%s\n", color.CyanString(ninfoPath), fingerprint)))
-		}
+		err = DebugFingerprint(cmdCtx)
 
 	case "debug sign <paths>":
-		manager, err := initializeNixSigMan(logger)
-		if err != nil {
-			logger.Error("Could not initialize signature manager", zap.Error(err))
-			return err
-		}
-		for _, ninfoPath := range CLI.Debug.Sign.Paths {
-			ninfo, err := nixsigman.NewNarInfoFromFile(ninfoPath)
-			if err != nil {
-				logger.Warn("Could not read supplied file", zap.String("path", ninfoPath), zap.Error(err))
-			}
-			signingKeyNames := []string{}
-			for _, kentry := range manager.ListPrivateKeys() {
-				signingKeyNames = append(signingKeyNames, kentry.Name)
-			}
-			logger.Debug("Signing key keys", zap.Strings("keynames", signingKeyNames))
-			signatures := manager.Sign(ninfo, signingKeyNames)
-			stdOut.Write([]byte(fmt.Sprintf("%s:%s\n", color.CyanString(ninfoPath), strings.Join(signatures, " "))))
-		}
+		err = DebugSign(cmdCtx)
 
 	default:
 		err = &ErrCommandNotImplemented{Command: ctx.Command()}
@@ -103,41 +76,4 @@ func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCl
 		return err
 	}
 	return nil
-}
-
-func initializeNixSigMan(logger *zap.Logger) (*nixsigman.NixSigMan, error) {
-	manager := nixsigman.NewNixSignatureManager()
-	for _, path := range CLI.PrivateKeyFiles {
-		if err := manager.LoadPrivateKeyFromFile(path); err != nil {
-			logger.Error("Could not load private key file", zap.String("path", path), zap.Error(err))
-			return nil, err
-		}
-		logger.Debug("Loaded private keys from file", zap.String("path", path))
-	}
-	for _, keyString := range CLI.PrivateKeys {
-		if err := manager.LoadPrivateKeyFromString(keyString); err != nil {
-			logger.Error("Could not load private key", zap.Error(err))
-			return nil, err
-		}
-		logger.Debug("Loaded private key")
-	}
-	for _, path := range CLI.PublicKeysFiles {
-		if err := manager.LoadPublicKeyFromFile(path); err != nil {
-			logger.Error("Could not load private key file", zap.String("path", path), zap.Error(err))
-			return nil, err
-		}
-		logger.Debug("Loaded public keys from file", zap.String("path", path))
-	}
-	for _, keyString := range CLI.PublicKeys {
-		if err := manager.LoadPublicKeyFromString(keyString); err != nil {
-			logger.Error("Could not load public key", zap.Error(err), zap.String("key", keyString))
-			return nil, err
-		}
-		logger.Debug("Loaded public key")
-	}
-	logger.Debug("Signature Manager Loaded",
-		zap.Int("private_keys", manager.PrivateKeysCount()),
-		zap.Int("public_keys", manager.PublicKeysCount()),
-	)
-	return manager, nil
 }

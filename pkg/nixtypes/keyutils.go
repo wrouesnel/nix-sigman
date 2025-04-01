@@ -79,7 +79,7 @@ func commentedLineParser(reader io.Reader) ([]string, error) {
 		}
 		line, _ = strings.CutSuffix(line, " #")
 		line, _ = strings.CutSuffix(line, "\t#")
-		lines = append(lines)
+		lines = append(lines, line)
 	}
 	if err := bio.Err(); err != io.EOF {
 		return lines, err
