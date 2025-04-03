@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"github.com/samber/lo"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
@@ -144,7 +145,7 @@ func loadPublicKeys(cmdCtx CmdContext) ([]nixtypes.NamedPublicKey, error) {
 		}
 		publicKeys = append(publicKeys, keys...)
 	}
-	for _, key := range CLI.PrivateKeys {
+	for _, key := range CLI.PublicKeys {
 		r := nixtypes.NamedPublicKey{}
 		if err := r.UnmarshalText([]byte(key)); err != nil {
 			return publicKeys, err
@@ -198,4 +199,34 @@ func narHashCheck(l *zap.Logger, path string, ninfo nixtypes.NarInfo) (bool, nix
 		Hash:     hasher.Sum(nil),
 	}
 	return bytes.Equal(obtainedHash.Hash, ninfo.FileHash.Hash), obtainedHash, nil
+}
+
+func backNinfo(l *zap.Logger, path string) error {
+	backupPath := fmt.Sprintf("%s.bak", path)
+	oldNarBytes, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(backupPath, oldNarBytes, os.FileMode(0644)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeNInfo(l *zap.Logger, path string, ninfo nixtypes.NarInfo) error {
+	newPath := fmt.Sprintf("%s.new", path)
+	newBytes, err := ninfo.MarshalText()
+	if err != nil {
+		l.Warn("Failed to serialize narinfo file - signing aborted", zap.Error(err))
+		return err
+	}
+	if err := os.WriteFile(newPath, newBytes, os.FileMode(0644)); err != nil {
+		l.Warn("Failed to write narinfo file - signing aborted")
+		return err
+	}
+	if err := os.Rename(newPath, path); err != nil {
+		l.Warn("Failed to atomically replace narinfo file - signing aborted")
+		return err
+	}
+	return nil
 }

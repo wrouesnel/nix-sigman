@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"github.com/samber/lo"
 	"path"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -78,36 +77,36 @@ func (n *NarInfo) MakeSignature(key NamedPrivateKey) (NixSignature, error) {
 
 // Sign generates and applies a new signature to the NarInfo. It will check for
 // identical signatures by keyname and signature.
-func (n *NarInfo) Sign(key NamedPrivateKey) (NixSignature, error) {
+func (n *NarInfo) Sign(key NamedPrivateKey) (bool, NixSignature, error) {
 	signature, err := n.MakeSignature(key)
 	if err != nil {
-		return signature, err
+		return false, signature, err
 	}
 	for _, existingSignature := range n.Sig {
 		if existingSignature.KeyName == signature.KeyName {
 			if bytes.Equal(existingSignature.Signature, signature.Signature) {
 				// Signature is identical, don't need to apply this one.
-				return signature, nil
+				return false, signature, nil
 			}
 		}
 	}
 	// No existing signature, apply a new one.
 	n.Sig = append(n.Sig, signature)
-	return signature, nil
+	return true, signature, nil
 }
 
 // SignReplaceByName generates and applies a new signature to NarInfo. It will check
 // for signatures with the same name as the signing key, and replace them if they differ.
-func (n *NarInfo) SignReplaceByName(key NamedPrivateKey) (NixSignature, error) {
+func (n *NarInfo) SignReplaceByName(key NamedPrivateKey) (bool, NixSignature, error) {
 	signature, err := n.MakeSignature(key)
 	if err != nil {
-		return signature, err
+		return false, signature, err
 	}
 	for _, existingSignature := range n.Sig {
 		if existingSignature.KeyName == signature.KeyName {
 			if bytes.Equal(existingSignature.Signature, signature.Signature) {
 				// Signature is identical, don't need to apply this one.
-				return signature, nil
+				return false, signature, nil
 			} else {
 				// Bytes not equal, delete this signature and replace it.
 				n.RemoveSigsByNames(key.KeyName)
@@ -117,7 +116,7 @@ func (n *NarInfo) SignReplaceByName(key NamedPrivateKey) (NixSignature, error) {
 	}
 	// No existing signature, apply a new one.
 	n.Sig = append(n.Sig, signature)
-	return signature, nil
+	return true, signature, nil
 }
 
 // RemoveSigsByNames removes any signatures with a matching key name
@@ -129,6 +128,11 @@ func (n *NarInfo) RemoveSigsByNames(keyNames ...string) {
 		return true
 	})
 	n.Sig = newSigs
+}
+
+// RemoveAllSigs removes all existing signatures
+func (n *NarInfo) RemoveAllSigs() {
+	n.Sig = []NixSignature{}
 }
 
 func (n *NarInfo) UnmarshalText(text []byte) error {
@@ -199,6 +203,10 @@ func (n *NarInfo) UnmarshalText(text []byte) error {
 			n.Deriver = value
 
 		case "Sig":
+			// We misread the initial spec for this, and sig should be one
+			// sig per line. But that doesn't seem to square with the signing
+			// key spec, and since it's handy to use it this way let's just
+			// handle it and fix it up.
 			if value == "" {
 				continue
 			}
@@ -218,7 +226,8 @@ func (n *NarInfo) UnmarshalText(text []byte) error {
 }
 
 // renderKey handles rendering output keys in the finicky nix format needed for signing
-// - namely that empty keys aren't allowed to have a trailing space (breaks refer
+// - namely that empty keys aren't allowed to have a trailing space (breaks reference
+// signature parsing). TODO: is this true? Or did we break the whole sig mechanism?
 func (n *NarInfo) renderKey(key string, value string) string {
 	if value == "" {
 		return fmt.Sprintf("%s:", key)
@@ -226,63 +235,51 @@ func (n *NarInfo) renderKey(key string, value string) string {
 	return fmt.Sprintf("%s: %s", key, value)
 }
 
-func (n *NarInfo) MarshalText() (text []byte, err error) {
-	outputLines := map[string]string{}
+type NarOutputLines []string
 
-	outputLines["StorePath"] = n.StorePath
-	outputLines["URL"] = n.URL
-	if n.Compression != "" {
-		outputLines["Compression"] = n.Compression
+func (n *NarOutputLines) Add(key string, values ...string) {
+	//if len(values) == 0 {
+	//	*n = append(*n, fmt.Sprintf("%s:", key))
+	//	return
+	//}
+	for _, value := range values {
+		*n = append(*n, fmt.Sprintf("%s: %s", key, value))
 	}
-	outputLines["FileHash"] = n.FileHash.String()
-	outputLines["FileSize"] = fmt.Sprintf("%d", n.FileSize)
-	outputLines["NarHash"] = n.NarHash.String()
-	outputLines["NarSize"] = fmt.Sprintf("%d", n.NarSize)
-	outputLines["References"] = strings.Join(n.References, " ")
+}
+
+func (n *NarOutputLines) String() string {
+	return strings.Join(*n, "\n")
+}
+
+func (n *NarInfo) MarshalText() (text []byte, err error) {
+	outputLines := NarOutputLines{}
+
+	outputLines.Add("StorePath", n.StorePath)
+	outputLines.Add("URL", n.URL)
+	if n.Compression != "" {
+		outputLines.Add("Compression", n.Compression)
+	}
+	outputLines.Add("FileHash", n.FileHash.String())
+	outputLines.Add("FileSize", fmt.Sprintf("%d", n.FileSize))
+	outputLines.Add("NarHash", n.NarHash.String())
+	outputLines.Add("NarSize", fmt.Sprintf("%d", n.NarSize))
+	outputLines.Add("References", strings.Join(n.References, " "))
 
 	if n.Deriver != "" {
-		outputLines["Deriver"] = n.Deriver
+		outputLines.Add("Deriver", n.Deriver)
 	}
 
-	outputLines["Sig"] = lo.Reduce(n.Sig, func(agg string, item NixSignature, index int) string {
-		if agg != "" {
-			return fmt.Sprintf("%s %s", agg, item.String())
-		} else {
-			return item.String()
-		}
-	}, "")
+	sigs := lo.Map(n.Sig, func(item NixSignature, index int) string {
+		return item.String()
+	})
+	outputLines.Add("Sig", sigs...)
 
 	for key, value := range n.Extra {
-		outputLines[key] = value
+		outputLines.Add(key, value)
 	}
 
-	// Identify keys we don't have an order for
-	unorderedKeys := lo.OmitByKeys(outputLines, n.order)
-
-	for _, key := range n.order {
-		text = append(text, []byte(n.renderKey(key, outputLines[key]))...)
-		text = append(text, []byte("\n")...)
-		if key == "URL" && lo.HasKey(unorderedKeys, "Compression") {
-			text = append(text, []byte(n.renderKey("Compression", outputLines[key]))...)
-			text = append(text, []byte("\n")...)
-			unorderedKeys = lo.OmitByKeys(unorderedKeys, []string{"Compression"})
-		}
-		if key == "References" && lo.HasKey(unorderedKeys, "Deriver") {
-			text = append(text, []byte(n.renderKey("Deriver", outputLines[key]))...)
-			text = append(text, []byte("\n")...)
-			unorderedKeys = lo.OmitByKeys(unorderedKeys, []string{"Deriver"})
-		}
-	}
-
-	// Output any remaining keys in a determinate order
-	remainingKeys := lo.Keys(unorderedKeys)
-	sort.Strings(remainingKeys)
-
-	for _, key := range remainingKeys {
-		text = append(text, []byte(fmt.Sprintf("%s: ", key))...)
-		text = append(text, []byte(unorderedKeys[key])...)
-		text = append(text, []byte("\n")...)
-	}
+	text = []byte(outputLines.String())
+	text = append(text, []byte("\n")...)
 
 	return
 }

@@ -32,7 +32,7 @@ FileHash: sha256:1xabljs3h2qfbdfl1z0hbm1nvlcl27qlvdb8ib0j39f51rvka2dr
 FileSize: 74020
 NarHash: sha256:0wdfccp187mcmnbvk464zypkwdjnyfiwkf7d6q0wfinlk5z67j4i
 NarSize: 201856
-References:
+References: 
 Deriver: ci1f3qvj2i3bgr2wibfxl52cfw0wfks6-gcc-14-20241116.drv
 Sig: cache.nixos.org-1:BUOAstUWfupkmoOCjZyXYdtvMX3GzNLSXcTDZEsvUzmlhsSEU+Bxed+dCXfOHBb3Gn7znamBF7aeOwuOMi0YCg==
 `
@@ -51,6 +51,19 @@ CA: text:somevalue:whocares
 a reall bad feild: with a value
 `
 
+const narInfoMultiSig = `StorePath: /nix/store/s0kylmi4nxahi0jgs7a1cd19q6s00smw-clang-src-17.0.6
+URL: nar/1wbdzanpck57g3r2hwxjczicd20ws2d01hzgr59qiw0g4qmiflji.nar.xz
+Compression: xz
+FileHash: sha256:1wbdzanpck57g3r2hwxjczicd20ws2d01hzgr59qiw0g4qmiflji
+FileSize: 24265320
+NarHash: sha256:11vbjvwfris38n50wpbb5laanxkkkb5iybck4a28cv5i13v2wjw9
+NarSize: 416259664
+References: 
+Deriver: j6cn8bxikh82jwzwva0nmnq31xl1i20k-clang-src-17.0.6.drv
+Sig: cache.nixos.org-1:GnSFytFjswxd8f+VjvVXusiaaT2LN3KCaS3wlJDBOrueGOHKpxhn8KwTWGsPVRaT5mp4cPOg9Cww4mCyjzAfAg==
+Sig: test-key-1:p4ZE4Vz3pQ6P3KkVuJM2xQdMlW7sI3g0NND+Z/u/r6IjSMz5vyMWj+qg68uBjJKjc75Fz5tLJicpF/Vc6ocNDA==
+`
+
 func (s *NarInfoSuite) TestNarInfo(c *C) {
 	ninfo := &NarInfo{}
 	err := ninfo.UnmarshalText([]byte(narInfo))
@@ -59,6 +72,18 @@ func (s *NarInfoSuite) TestNarInfo(c *C) {
 	content, err := ninfo.MarshalText()
 	c.Assert(err, IsNil)
 	c.Assert(string(content), DeepEquals, narInfo)
+}
+
+func (s *NarInfoSuite) TestNarInfoWithMultipleSignatures(c *C) {
+	ninfo := &NarInfo{}
+	err := ninfo.UnmarshalText([]byte(narInfoMultiSig))
+	c.Assert(err, IsNil)
+
+	c.Assert(len(ninfo.Sig), Equals, 2)
+
+	content, err := ninfo.MarshalText()
+	c.Assert(err, IsNil)
+	c.Assert(string(content), DeepEquals, narInfoMultiSig)
 }
 
 func (s *NarInfoSuite) TestNarInfoEmptyReferences(c *C) {
@@ -71,11 +96,12 @@ func (s *NarInfoSuite) TestNarInfoEmptyReferences(c *C) {
 	content, err := ninfo.MarshalText()
 	c.Assert(err, IsNil)
 	c.Assert(string(content), DeepEquals, narInfoEmptyReferences)
-	// Check the references field doesn't have a trailing space
+	// This used to check the references field didn't have a trailing space,
+	// but it turn out cache.nixos.org serves these that way so that's correct.
 	for _, line := range strings.Split(string(content), "\n") {
 		parts := strings.Split(line, ":")
 		if parts[0] == "References" {
-			c.Assert(parts[1], Equals, "")
+			c.Assert(parts[1], Equals, " ")
 		}
 	}
 }
@@ -102,11 +128,13 @@ func (s *NarInfoSuite) TestNarInfoEmptyReferencesSign(c *C) {
 
 	keyName := strings.ReplaceAll(c.TestName(), " ", "")
 	signKey, err := GeneratePrivateKey(keyName)
-	_, err = ninfo.Sign(signKey)
+	didSign, _, err := ninfo.Sign(signKey)
 	c.Assert(err, IsNil)
-	_, err = ninfo.Sign(signKey)
+	c.Assert(didSign, Equals, true)
+	didSign, _, err = ninfo.Sign(signKey)
 	c.Assert(err, IsNil)
 	c.Assert(len(ninfo.Sig), Equals, 2)
+	c.Assert(didSign, Equals, false)
 
 	verified, signatures := ninfo.Verify(signKey.PublicKey())
 	c.Assert(verified, Equals, true)
@@ -146,11 +174,13 @@ func (s *NarInfoSuite) TestNarInfoSign(c *C) {
 
 	keyName := strings.ReplaceAll(c.TestName(), " ", "")
 	signKey, err := GeneratePrivateKey(keyName)
-	_, err = ninfo.Sign(signKey)
+	didSign, _, err := ninfo.Sign(signKey)
 	c.Assert(err, IsNil)
-	_, err = ninfo.Sign(signKey)
+	c.Assert(didSign, Equals, true)
+	didSign, _, err = ninfo.Sign(signKey)
 	c.Assert(err, IsNil)
 	c.Assert(len(ninfo.Sig), Equals, 2)
+	c.Assert(didSign, Equals, false)
 
 	verified, signatures := ninfo.Verify(signKey.PublicKey())
 	c.Assert(verified, Equals, true)

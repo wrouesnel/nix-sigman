@@ -134,65 +134,49 @@ func Sign(cmdCtx CmdContext) error {
 
 		// Sign the NARinfo with each key
 		errDuringSigning := false
+		didSign := false
 		for _, key := range signingKeys {
-			signature, err := ninfo.SignReplaceByName(key)
+			didNewSignature, _, err := ninfo.SignReplaceByName(key)
 			if err != nil {
 				l.Warn("Error during signing", zap.Error(err))
 				errDuringSigning = true
 				continue
 			}
-			l.Debug("Signed NARinfo with key", zap.String("keyname", key.KeyName),
-				zap.String("signature", signature.String()))
-		}
-
-		if errDuringSigning {
-			l.Warn("Errors while signing")
-			return nil
-		}
-
-		if CLI.Sign.BackupNARInfos {
-			if err = backNinfo(l, path); err != nil {
-				l.Warn("Failed to backup narinfo file - signing aborted", zap.Error(err))
-				return nil
+			if didNewSignature {
+				didSign = true
 			}
 		}
 
-		// Ignore errors - write logs its own errors
-		_ = writeNInfo(l, path, ninfo)
+		signatureStrings := lo.Map(ninfo.Sig, func(item nixtypes.NixSignature, index int) string {
+			return item.String()
+		})
+
+		if errDuringSigning {
+			l.Warn("Errors while signing - no changes made")
+			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path), color.RedString("FAILSIGN"), strings.Join(signatureStrings, " "))))
+			return nil
+		}
+
+		if !didSign {
+			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path), color.WhiteString("NOCHANGE"), strings.Join(signatureStrings, " "))))
+		} else {
+
+			if CLI.Sign.BackupNARInfos {
+				if err = backNinfo(l, path); err != nil {
+					l.Warn("Failed to backup narinfo file - signing aborted", zap.Error(err))
+					return nil
+				}
+			}
+
+			// Ignore errors - write logs its own errors
+			_ = writeNInfo(l, path, ninfo)
+
+			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path), color.YellowString("SIGNUPDT"), strings.Join(signatureStrings, " "))))
+		}
 
 		return nil
 	})
 	return err
-}
-
-func backNinfo(l *zap.Logger, path string) error {
-	backupPath := fmt.Sprintf("%s.bak")
-	oldNarBytes, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(backupPath, oldNarBytes, os.FileMode(0644)); err != nil {
-		return err
-	}
-	return nil
-}
-
-func writeNInfo(l *zap.Logger, path string, ninfo nixtypes.NarInfo) error {
-	newPath := fmt.Sprintf("%s.new")
-	newBytes, err := ninfo.MarshalText()
-	if err != nil {
-		l.Warn("Failed to serialize narinfo file - signing aborted", zap.Error(err))
-		return err
-	}
-	if err := os.WriteFile(newPath, newBytes, os.FileMode(0644)); err != nil {
-		l.Warn("Failed to write narinfo file - signing aborted")
-		return err
-	}
-	if err := os.Rename(newPath, path); err != nil {
-		l.Warn("Failed to atomically replace narinfo file - signing aborted")
-		return err
-	}
-	return nil
 }
 
 // Verify implements NARInfo and archive verification
