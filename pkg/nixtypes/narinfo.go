@@ -96,6 +96,30 @@ func (n *NarInfo) Sign(key NamedPrivateKey) (NixSignature, error) {
 	return signature, nil
 }
 
+// SignReplaceByName generates and applies a new signature to NarInfo. It will check
+// for signatures with the same name as the signing key, and replace them if they differ.
+func (n *NarInfo) SignReplaceByName(key NamedPrivateKey) (NixSignature, error) {
+	signature, err := n.MakeSignature(key)
+	if err != nil {
+		return signature, err
+	}
+	for _, existingSignature := range n.Sig {
+		if existingSignature.KeyName == signature.KeyName {
+			if bytes.Equal(existingSignature.Signature, signature.Signature) {
+				// Signature is identical, don't need to apply this one.
+				return signature, nil
+			} else {
+				// Bytes not equal, delete this signature and replace it.
+				n.RemoveSigsByNames(key.KeyName)
+				break
+			}
+		}
+	}
+	// No existing signature, apply a new one.
+	n.Sig = append(n.Sig, signature)
+	return signature, nil
+}
+
 // RemoveSigsByNames removes any signatures with a matching key name
 func (n *NarInfo) RemoveSigsByNames(keyNames ...string) {
 	newSigs := lo.Filter(n.Sig, func(item NixSignature, index int) bool {
@@ -193,6 +217,15 @@ func (n *NarInfo) UnmarshalText(text []byte) error {
 	return nil
 }
 
+// renderKey handles rendering output keys in the finicky nix format needed for signing
+// - namely that empty keys aren't allowed to have a trailing space (breaks refer
+func (n *NarInfo) renderKey(key string, value string) string {
+	if value == "" {
+		return fmt.Sprintf("%s:", key)
+	}
+	return fmt.Sprintf("%s: %s", key, value)
+}
+
 func (n *NarInfo) MarshalText() (text []byte, err error) {
 	outputLines := map[string]string{}
 
@@ -227,18 +260,15 @@ func (n *NarInfo) MarshalText() (text []byte, err error) {
 	unorderedKeys := lo.OmitByKeys(outputLines, n.order)
 
 	for _, key := range n.order {
-		text = append(text, []byte(fmt.Sprintf("%s: ", key))...)
-		text = append(text, []byte(outputLines[key])...)
+		text = append(text, []byte(n.renderKey(key, outputLines[key]))...)
 		text = append(text, []byte("\n")...)
 		if key == "URL" && lo.HasKey(unorderedKeys, "Compression") {
-			text = append(text, []byte(fmt.Sprintf("%s: ", "Compression"))...)
-			text = append(text, []byte(unorderedKeys["Compression"])...)
+			text = append(text, []byte(n.renderKey("Compression", outputLines[key]))...)
 			text = append(text, []byte("\n")...)
 			unorderedKeys = lo.OmitByKeys(unorderedKeys, []string{"Compression"})
 		}
 		if key == "References" && lo.HasKey(unorderedKeys, "Deriver") {
-			text = append(text, []byte(fmt.Sprintf("%s: ", "Deriver"))...)
-			text = append(text, []byte(unorderedKeys["Deriver"])...)
+			text = append(text, []byte(n.renderKey("Deriver", outputLines[key]))...)
 			text = append(text, []byte("\n")...)
 			unorderedKeys = lo.OmitByKeys(unorderedKeys, []string{"Deriver"})
 		}

@@ -23,6 +23,8 @@ Deriver: cfp8jh04f3jfdcjskw2p64ri3w6njndm-bash-5.2p37.drv
 Sig: cache.nixos.org-1:jmkQzt2cr2aaXwrftMjybjNktqNZXcb+6LR8auhzEnIGzU9t6A3HU8Y67vraZJpgJ90XPNfkYiqUvXs5yiomAQ==
 `
 
+// Important: nix parsing requires the References field to be "References:" with no trailing space, otherwise
+// parser
 const narInfoEmptyReferences = `StorePath: /nix/store/2kgif7n5hi16qhkrnjnv5swnq9aq3qhj-gcc-14-20241116-libgcc
 URL: nar/1xabljs3h2qfbdfl1z0hbm1nvlcl27qlvdb8ib0j39f51rvka2dr.nar.xz
 Compression: xz
@@ -30,7 +32,7 @@ FileHash: sha256:1xabljs3h2qfbdfl1z0hbm1nvlcl27qlvdb8ib0j39f51rvka2dr
 FileSize: 74020
 NarHash: sha256:0wdfccp187mcmnbvk464zypkwdjnyfiwkf7d6q0wfinlk5z67j4i
 NarSize: 201856
-References: 
+References:
 Deriver: ci1f3qvj2i3bgr2wibfxl52cfw0wfks6-gcc-14-20241116.drv
 Sig: cache.nixos.org-1:BUOAstUWfupkmoOCjZyXYdtvMX3GzNLSXcTDZEsvUzmlhsSEU+Bxed+dCXfOHBb3Gn7znamBF7aeOwuOMi0YCg==
 `
@@ -69,6 +71,13 @@ func (s *NarInfoSuite) TestNarInfoEmptyReferences(c *C) {
 	content, err := ninfo.MarshalText()
 	c.Assert(err, IsNil)
 	c.Assert(string(content), DeepEquals, narInfoEmptyReferences)
+	// Check the references field doesn't have a trailing space
+	for _, line := range strings.Split(string(content), "\n") {
+		parts := strings.Split(line, ":")
+		if parts[0] == "References" {
+			c.Assert(parts[1], Equals, "")
+		}
+	}
 }
 
 func (s *NarInfoSuite) TestNarInfoEmptyReferencesVerify(c *C) {
