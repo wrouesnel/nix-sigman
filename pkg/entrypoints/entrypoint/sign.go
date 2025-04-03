@@ -1,8 +1,15 @@
 package entrypoint
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
+	"github.com/fatih/color"
+	"github.com/samber/lo"
+	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
-	"io"
+	"os"
+	"strings"
 )
 
 //nolint:gochecknoglobals
@@ -14,155 +21,265 @@ type SignConfig struct {
 
 //nolint:gochecknoglobals
 type VerifyConfig struct {
+	ValidateHashes     bool     `help:"Validate file hashes of archive files" default:"false"`
 	IncludePrivateKeys bool     `help:"Private Keys should also be used for trust" default:"false"`
-	TrustedKeys        []string `help:"Names of keys to sign with (default all)" default:"*"`
+	TrustedKeys        []string `help:"Names of keys to verify with (default all)" default:"*"`
+	NarInfoFiles       []string `arg:"" help:"NARInfo files to sign - specify - to read list from stdin"`
+}
+
+//nolint:gochecknoglobals
+type ValidateConfig struct {
+	BackupNARInfos bool     `help:"Make backups of NARinfo files" default:"true"`
+	Fix            bool     `help:"Rewrite NARinfo files if they're not an exact match" default:"false"`
+	NarInfoFiles   []string `arg:"" help:"NARInfo files to sign - specify - to read list from stdin"`
+}
+
+// Validate checks the format of the NARinfo file against the serialization.
+func Validate(cmdCtx CmdContext) error {
+	err := readPaths(cmdCtx, CLI.Validate.NarInfoFiles, func(path string) error {
+		l := cmdCtx.logger
+
+		var err error
+
+		fileBytes, err := os.ReadFile(path)
+		if err != nil {
+			l.Warn("Could not read file", zap.Error(err))
+			return err
+		}
+
+		ninfo := nixtypes.NarInfo{}
+		err = ninfo.UnmarshalText(fileBytes)
+		if err != nil {
+			cmdCtx.stdOut.Write([]byte(
+				fmt.Sprintf("%s:%s:%s\n", color.CyanString("%s", path),
+					color.RedString("FAILREAD"), strings.ReplaceAll(err.Error(), "\n", "\\\\n"))))
+			return nil
+		}
+
+		// Remarshal the file
+		remarshalled, err := ninfo.MarshalText()
+		if err != nil {
+			cmdCtx.stdOut.Write([]byte(
+				fmt.Sprintf("%s:%s:%s\n", color.CyanString("%s", path),
+					color.RedString("FAILMRSL"), strings.ReplaceAll(err.Error(), "\n", "\\\\n"))))
+			return nil
+		}
+
+		// Compare
+		if bytes.Equal(fileBytes, remarshalled) == false {
+			if CLI.Validate.Fix {
+				if CLI.Sign.BackupNARInfos {
+					if err = backNinfo(l, path); err != nil {
+						l.Warn("Failed to backup narinfo file - rewrite aborted", zap.Error(err))
+						return nil
+					}
+				}
+
+				// Ignore errors - write logs its own errors
+				_ = writeNInfo(l, path, ninfo)
+
+				cmdCtx.stdOut.Write([]byte(
+					fmt.Sprintf("%s:%s:%s\n", color.CyanString("%s", path),
+						color.YellowString("FIXEDFRM"), "Updated On-Disk Format")))
+			} else {
+				cmdCtx.stdOut.Write([]byte(
+					fmt.Sprintf("%s:%s:%s\n", color.CyanString("%s", path),
+						color.RedString("FAILFORM"), "On-Disk Does Not Match Reserialization")))
+			}
+			return nil
+		}
+
+		cmdCtx.stdOut.Write([]byte(
+			fmt.Sprintf("%s:%s:\n",
+				color.CyanString("%s", path), color.GreenString("GOODFORM"))))
+		return nil
+	})
+	return err
 }
 
 // Sign implements (re)-signing a NARInfo file
-func Sign(logger *zap.Logger, stdIn io.ReadCloser) error {
-	//	manager, err := initializeNixSigMan(logger)
-	//	if err != nil {
-	//		logger.Error("Error initializing signature manager")
-	//		return err
-	//	}
-	//
-	//	signingKeys := []nixsigman.KeyIdentity{}
-	//	knownKeys := manager.ListPrivateKeys()
-	//	if lo.Contains(CLI.Sign.SigningKeys, "*") {
-	//		for _, knownKey := range knownKeys {
-	//			signingKeys = append(signingKeys, knownKey)
-	//		}
-	//	} else {
-	//		for _, requestedKey := range CLI.Sign.SigningKeys {
-	//			foundKey := false
-	//		innerLoop:
-	//			for _, knownKey := range knownKeys {
-	//				if requestedKey == knownKey.PublicKey {
-	//					signingKeys = append(signingKeys, knownKey)
-	//					foundKey = true
-	//					break innerLoop
-	//				}
-	//			}
-	//			if !foundKey {
-	//			innerLoop2:
-	//				for _, knownKey := range knownKeys {
-	//					if requestedKey == knownKey.Name {
-	//						signingKeys = append(signingKeys, knownKey)
-	//						foundKey = true
-	//						break innerLoop2
-	//					}
-	//				}
-	//			}
-	//			if !foundKey {
-	//				return fmt.Errorf("requested signing key could not be found: %s", requestedKey)
-	//			}
-	//		}
-	//	}
-	//
-	//	signingNames := []string{}
-	//	validationManager := nixsigman.NewNixSignatureManager()
-	//	for _, signingKey := range signingKeys {
-	//		if err := validationManager.LoadPublicKeyFromString(signingKey.String()); err != nil {
-	//			return fmt.Errorf("BUG: error loading key from manager? %w", err)
-	//		}
-	//		signingNames = append(signingNames, signingKey.Name)
-	//	}
-	//
-	//	filenameCh := make(chan string)
-	//	errorCh := make(chan error)
-	//	go fileSigner(logger, manager, signingNames, validationManager, filenameCh, errorCh)
-	//
-	//loop:
-	//	for _, filename := range CLI.Sign.NarInfoFiles {
-	//		select {
-	//		case err = <-errorCh:
-	//			break loop
-	//		default:
-	//		}
-	//		if filename == "-" {
-	//			sc := bufio.NewScanner(stdIn)
-	//			for sc.Scan() {
-	//				filename = strings.TrimSpace(sc.Text())
-	//				if filename == "" {
-	//					continue
-	//				}
-	//				select {
-	//				case err = <-errorCh:
-	//					break loop
-	//				default:
-	//				}
-	//				filenameCh <- filename
-	//			}
-	//			if sc.Err() != nil {
-	//				close(filenameCh)
-	//				return err
-	//			}
-	//			stdIn.Close()
-	//		} else {
-	//			filenameCh <- filename
-	//		}
-	//	}
-	//	close(filenameCh)
-	//
-	//	<-errorCh
-	//
-	//	return err
+func Sign(cmdCtx CmdContext) error {
+	privateKeys, err := loadPrivateKeys(cmdCtx)
+	if err != nil {
+		cmdCtx.logger.Error("Error loading private keys", zap.Error(err))
+		return errors.Join(&ErrCommand{}, err)
+	}
+
+	signingKeys := []nixtypes.NamedPrivateKey{}
+	if lo.Contains(CLI.Sign.SigningKeys, "*") {
+		cmdCtx.logger.Debug("Sign with ALL private keys")
+		signingKeys = privateKeys
+	} else {
+		desiredKeyNames := lo.SliceToMap(CLI.Sign.SigningKeys, func(item string) (string, struct{}) {
+			return item, struct{}{}
+		})
+		signingKeys = lo.Filter(privateKeys, func(item nixtypes.NamedPrivateKey, index int) bool {
+			return lo.HasKey(desiredKeyNames, item.KeyName)
+		})
+	}
+	cmdCtx.logger.Debug("Signing Keys Set", zap.Int("num_signing_keys", len(signingKeys)))
+
+	if len(signingKeys) == 0 {
+		return errors.Join(&ErrCommand{}, errors.New("no private keys selected"))
+	}
+
+	err = readPaths(cmdCtx, CLI.Sign.NarInfoFiles, func(path string) error {
+		l := cmdCtx.logger.With(zap.String("path", path))
+
+		ninfo, err := loadNarInfo(l, path)
+		if err != nil {
+			l.Warn("Could not load narinfo file", zap.Error(err))
+			return nil
+		}
+
+		// Sign the NARinfo with each key
+		errDuringSigning := false
+		for _, key := range signingKeys {
+			signature, err := ninfo.SignReplaceByName(key)
+			if err != nil {
+				l.Warn("Error during signing", zap.Error(err))
+				errDuringSigning = true
+				continue
+			}
+			l.Debug("Signed NARinfo with key", zap.String("keyname", key.KeyName),
+				zap.String("signature", signature.String()))
+		}
+
+		if errDuringSigning {
+			l.Warn("Errors while signing")
+			return nil
+		}
+
+		if CLI.Sign.BackupNARInfos {
+			if err = backNinfo(l, path); err != nil {
+				l.Warn("Failed to backup narinfo file - signing aborted", zap.Error(err))
+				return nil
+			}
+		}
+
+		// Ignore errors - write logs its own errors
+		_ = writeNInfo(l, path, ninfo)
+
+		return nil
+	})
+	return err
+}
+
+func backNinfo(l *zap.Logger, path string) error {
+	backupPath := fmt.Sprintf("%s.bak")
+	oldNarBytes, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(backupPath, oldNarBytes, os.FileMode(0644)); err != nil {
+		return err
+	}
 	return nil
 }
 
-//
-//func fileSigner(logger *zap.Logger, manager *nixsigman.NixSigMan,
-//	signingNames []string,
-//	validationManager *nixsigman.NixSigMan,
-//	filenameCh chan string, errCh chan<- error) {
-//	defer close(errCh)
-//	for filename := range filenameCh {
-//		fl := logger.With(zap.String("path", filename))
-//		ninfo, err := nixsigman.NewNarInfoFromFile(filename)
-//		if err != nil {
-//			fl.Warn("Error reading file - not signing", zap.Error(err))
-//			continue
-//		}
-//
-//		fl.Debug("Check for existing signature from signing keys")
-//		_, _, invalidKeys := validationManager.Verify(ninfo)
-//		if len(invalidKeys) > 0 {
-//			fl.Debug("Found missing key signatures - adding", zap.Int("missing_sigs", len(invalidKeys)))
-//			signatures := manager.Sign(ninfo, signingNames)
-//			for _, sig := range signatures {
-//				fl.Debug("Adding signature to NARinfo", zap.String("signature", sig))
-//				if err := ninfo.AddSignatureFromString(sig); err != nil {
-//					errCh <- errors.New("failed to update signatures on NARinfo blob")
-//					return
-//				}
-//			}
-//			// Output the new file
-//			newName := fmt.Sprintf("%s.new", filename)
-//			narBytes, err := ninfo.MarshalText()
-//			if err != nil {
-//				errCh <- err
-//				return
-//			}
-//			if err := os.WriteFile(newName, narBytes, os.FileMode(0777)); err != nil {
-//				errCh <- err
-//				return
-//			}
-//			// Backup old file if needed
-//			if CLI.Sign.BackupNARInfos {
-//				fl.Info("Backing up original NARInfo file")
-//				backupName := fmt.Sprintf("%s.bak", filename)
-//				if err := os.Rename(filename, backupName); err != nil {
-//					errCh <- err
-//					return
-//				}
-//			}
-//			// Move the new file into place
-//			if err := os.Rename(newName, filename); err != nil {
-//				errCh <- err
-//				return
-//			}
-//		} else {
-//			fl.Debug("Key signatures are up to date with signing keys")
-//		}
-//	}
-//}
+func writeNInfo(l *zap.Logger, path string, ninfo nixtypes.NarInfo) error {
+	newPath := fmt.Sprintf("%s.new")
+	newBytes, err := ninfo.MarshalText()
+	if err != nil {
+		l.Warn("Failed to serialize narinfo file - signing aborted", zap.Error(err))
+		return err
+	}
+	if err := os.WriteFile(newPath, newBytes, os.FileMode(0644)); err != nil {
+		l.Warn("Failed to write narinfo file - signing aborted")
+		return err
+	}
+	if err := os.Rename(newPath, path); err != nil {
+		l.Warn("Failed to atomically replace narinfo file - signing aborted")
+		return err
+	}
+	return nil
+}
+
+// Verify implements NARInfo and archive verification
+func Verify(cmdCtx CmdContext) error {
+	publicKeys, err := loadPublicKeys(cmdCtx)
+	if err != nil {
+		cmdCtx.logger.Error("Error loading public keys", zap.Error(err))
+		return errors.Join(&ErrCommand{}, err)
+	}
+
+	if CLI.Verify.IncludePrivateKeys {
+		cmdCtx.logger.Debug("Including private keys for verification")
+		privateKeys, err := loadPrivateKeys(cmdCtx)
+		if err != nil {
+			cmdCtx.logger.Error("Error loading private keys", zap.Error(err))
+			return errors.Join(&ErrCommand{}, err)
+		}
+		for _, key := range privateKeys {
+			publicKeys = append(publicKeys, key.PublicKey())
+		}
+	}
+
+	verifyKeys := []nixtypes.NamedPublicKey{}
+	if lo.Contains(CLI.Verify.TrustedKeys, "*") {
+		cmdCtx.logger.Debug("Verify against ALL public keys")
+		verifyKeys = publicKeys
+	} else {
+		desiredKeyNames := lo.SliceToMap(CLI.Verify.TrustedKeys, func(item string) (string, struct{}) {
+			return item, struct{}{}
+		})
+		verifyKeys = lo.Filter(publicKeys, func(item nixtypes.NamedPublicKey, index int) bool {
+			return lo.HasKey(desiredKeyNames, item.KeyName)
+		})
+	}
+	cmdCtx.logger.Debug("Signing Keys Set", zap.Int("num_trusted_keys", len(verifyKeys)))
+
+	if len(verifyKeys) == 0 {
+		return errors.Join(&ErrCommand{}, errors.New("no public keys selected"))
+	}
+
+	err = readPaths(cmdCtx, CLI.Verify.NarInfoFiles, func(path string) error {
+		cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:", color.CyanString(path))))
+
+		l := cmdCtx.logger.With(zap.String("path", path))
+
+		ninfo, err := loadNarInfo(l, path)
+		if err != nil {
+			l.Warn("Could not load narinfo file", zap.Error(err))
+			return nil
+		}
+
+		// Sign the NARinfo with each key
+		verifiedKeys := []nixtypes.NamedPublicKey{}
+		for _, key := range verifyKeys {
+			verified, _ := ninfo.Verify(key)
+			if !verified {
+				l.Debug("Failed verification", zap.String("keyname", key.KeyName))
+				continue
+			}
+			l.Debug("Successful verification", zap.String("keyname", key.KeyName))
+			verifiedKeys = append(verifiedKeys, key)
+		}
+
+		successfulKeyNames := lo.Map(verifiedKeys, func(item nixtypes.NamedPublicKey, index int) string {
+			return item.KeyName
+		})
+
+		if len(verifiedKeys) > 0 {
+			if CLI.Verify.ValidateHashes {
+				hashValid, _, err := narHashCheck(l, path, ninfo)
+				if hashValid {
+					cmdCtx.stdOut.Write([]byte(color.GreenString("GOODHASH")))
+				} else if err != nil || !hashValid {
+					cmdCtx.stdOut.Write([]byte(color.RedString("FAILHASH")))
+				}
+			} else {
+				// Just report signature falidity
+				cmdCtx.stdOut.Write([]byte(color.GreenString("GOODSIGN")))
+			}
+			cmdCtx.stdOut.Write([]byte(":"))
+			cmdCtx.stdOut.Write([]byte(color.WhiteString(strings.Join(successfulKeyNames, " "))))
+		} else {
+			cmdCtx.stdOut.Write([]byte(color.RedString("FAILSIGN")))
+			cmdCtx.stdOut.Write([]byte(":"))
+		}
+		cmdCtx.stdOut.Write([]byte("\n"))
+		return nil
+	})
+	return err
+}

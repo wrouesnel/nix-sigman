@@ -48,11 +48,13 @@ func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCl
 
 	switch ctx.Command() {
 	case "sign <nar-info-files>":
-		err = Sign(logger, stdIn)
+		err = Sign(cmdCtx)
 
-	case "verify":
-		err = &ErrCommandNotImplemented{Command: ctx.Command()}
-		logger.Error("Command not implemented")
+	case "verify <nar-info-files>":
+		err = Verify(cmdCtx)
+
+	case "validate <nar-info-files>":
+		err = Validate(cmdCtx)
 
 	case "debug generate-key <name>":
 		err = DebugGenerateKey(cmdCtx)
