@@ -47,6 +47,7 @@ var CLI struct {
 		} `cmd:"" help:"Get public key from supplied key on stdin"`
 	} `cmd:""`
 
+	Bundle   BundleConfig   `cmd:"" help:"Copy a NAR/NARInfo from the nix store"`
 	Sign     SignConfig     `cmd:"" help:"Sign a Nix archive"`
 	Verify   VerifyConfig   `cmd:"" help:"Verify a Nix archive signature"`
 	Validate ValidateConfig `cmd:"" help:"Validate a NarInfo file format"`

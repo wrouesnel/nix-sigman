@@ -56,6 +56,9 @@ func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCl
 	case "validate <nar-info-files>":
 		err = Validate(cmdCtx)
 
+	case "bundle <paths>":
+		err = Bundle(cmdCtx)
+
 	case "debug generate-key <name>":
 		err = DebugGenerateKey(cmdCtx)
 
