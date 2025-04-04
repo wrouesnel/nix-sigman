@@ -253,7 +253,7 @@ func Bundle(cmdCtx CmdContext) error {
 
 		ninfoPath := filepath.Join(outputDir, fmt.Sprintf("%s.narinfo", narId))
 		// Try and figure out the URL of the nar file relative to us
-		relNarPath, err := filepath.Rel(ninfoPath, narPath)
+		relNarPath, err := filepath.Rel(filepath.Dir(ninfoPath), narPath)
 		if err != nil {
 			l.Error("Cannot determine relative path of NAR from Ninfo")
 			return errors.New("No sane nar URL can be determined")

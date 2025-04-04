@@ -261,6 +261,15 @@ func Verify(cmdCtx CmdContext) error {
 		} else {
 			cmdCtx.stdOut.Write([]byte(color.RedString("FAILSIGN")))
 			cmdCtx.stdOut.Write([]byte(":"))
+			// Check hash anyway but don't report anything positive
+			if CLI.Verify.ValidateHashes {
+				hashValid, _, err := narHashCheck(l, path, ninfo)
+				if hashValid {
+					cmdCtx.stdOut.Write([]byte(color.GreenString("Hash OK")))
+				} else if err != nil || !hashValid {
+					cmdCtx.stdOut.Write([]byte(color.RedString("Hash Fail")))
+				}
+			}
 		}
 		cmdCtx.stdOut.Write([]byte("\n"))
 		return nil
