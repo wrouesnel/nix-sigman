@@ -59,6 +59,9 @@ func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCl
 	case "bundle <paths>":
 		err = Bundle(cmdCtx)
 
+	case "derivations show <paths>":
+		err = DerivationShow(cmdCtx)
+
 	case "debug generate-key <name>":
 		err = DebugGenerateKey(cmdCtx)
 

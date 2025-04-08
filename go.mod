@@ -13,6 +13,7 @@ require (
 	github.com/mholt/archiver v3.1.1+incompatible
 	github.com/mholt/archives v0.1.1
 	github.com/muesli/go-app-paths v0.2.2
+	github.com/nix-community/go-nix v0.0.0-20250101154619-4bdde671e0a1
 	github.com/pkg/errors v0.9.1
 	github.com/samber/lo v1.49.1
 	github.com/wrouesnel/kongutil v0.0.0-20250331082405-8d531c9e23eb
