@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -11,13 +12,56 @@ import (
 	"strings"
 )
 
-func DebugAsNix32(cmdCtx CmdContext) error {
+func DebugToBytes(cmdCtx CmdContext) error {
+	text, err := io.ReadAll(cmdCtx.stdIn)
+	if err != nil {
+		cmdCtx.logger.Error("Error while reading input")
+		return err
+	}
+
+	switch CLI.Debug.ToBytes.Format {
+	case "nix32":
+		field := nixtypes.NixBase32Field{}
+		if err := field.UnmarshalText(text); err != nil {
+			cmdCtx.logger.Error("Error decoding input", zap.Error(err))
+			return err
+		}
+		cmdCtx.stdOut.Write(field)
+	case "base64":
+		output := []byte{}
+		if buf, err := base64.StdEncoding.AppendDecode(output, text); err != nil {
+			cmdCtx.logger.Error("Error decoding input", zap.Error(err))
+			return err
+		} else {
+			cmdCtx.stdOut.Write(buf)
+		}
+	case "hex":
+		output := []byte{}
+		if buf, err := hex.AppendDecode(output, text); err != nil {
+			cmdCtx.logger.Error("Error decoding input", zap.Error(err))
+			return err
+		} else {
+			cmdCtx.stdOut.Write(buf)
+		}
+	}
+	return nil
+}
+
+func DebugFromBytes(cmdCtx CmdContext) error {
 	b, err := io.ReadAll(cmdCtx.stdIn)
 	if err != nil {
 		cmdCtx.logger.Error("Error while reading input")
 		return err
 	}
-	cmdCtx.stdOut.Write([]byte(nixtypes.NixBase32Field(b).String()))
+
+	switch CLI.Debug.FromBytes.Format {
+	case "nix32":
+		cmdCtx.stdOut.Write([]byte(nixtypes.NixBase32Field(b).String()))
+	case "base64":
+		cmdCtx.stdOut.Write([]byte(base64.StdEncoding.EncodeToString(b)))
+	case "hex":
+		cmdCtx.stdOut.Write([]byte(hex.EncodeToString(b)))
+	}
 	cmdCtx.stdOut.Write([]byte("\n"))
 	return nil
 }

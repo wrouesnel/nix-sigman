@@ -77,8 +77,11 @@ func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCl
 	case "debug convert-hash <hash>":
 		err = DebugConvertHash(cmdCtx)
 
-	case "debug as-nix-32":
-		err = DebugAsNix32(cmdCtx)
+	case "debug from-bytes <format>":
+		err = DebugFromBytes(cmdCtx)
+
+	case "debug to-bytes <format>":
+		err = DebugToBytes(cmdCtx)
 
 	default:
 		err = &ErrCommandNotImplemented{Command: ctx.Command()}

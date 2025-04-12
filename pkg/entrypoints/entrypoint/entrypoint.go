@@ -34,8 +34,12 @@ var CLI struct {
 	PublicKeys  []string `help:"Public Keys"`
 
 	Debug struct {
-		AsNix32 struct {
-		} `cmd:"" help:"Output the given bytes as a Nix base32 string"`
+		FromBytes struct {
+			Format string `arg:"" help:"Format to output as" enum:"nix32,base64,hex"`
+		} `cmd:"" help:"Output the given bytes as a specific format"`
+		ToBytes struct {
+			Format string `arg:"" help:"Format of the input" enum:"nix32,base64,hex"`
+		} `cmd:"" help:"Convert the given input bytes to a specific format"`
 		ConvertHash struct {
 			Hash string `arg:"" help:"Hash to convert (hex or nix)"`
 		} `cmd:"" help:"Convert between hex and Nix hash encodings"`
