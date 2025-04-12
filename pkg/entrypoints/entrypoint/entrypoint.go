@@ -34,6 +34,9 @@ var CLI struct {
 	PublicKeys  []string `help:"Public Keys"`
 
 	Debug struct {
+		ConvertHash struct {
+			Hash string "Hash"
+		} `cmd:"" help:"Convert between hex and Nix hash encodings"`
 		Fingerprint struct {
 			Paths []string `arg:"" help:"NARInfo files" type:"existingfile" `
 		} `cmd:"" help:"Generate the fingerprint for a NARInfo files"`

@@ -1,12 +1,40 @@
 package entrypoint
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"github.com/fatih/color"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
+	"strings"
 )
+
+func DebugConvertHash(cmdCtx CmdContext) error {
+	hashStr := CLI.Debug.ConvertHash.Hash
+	prefix, hash, _ := strings.Cut(hashStr, ":")
+
+	// Try and decode hex
+	if decoded, err := hex.DecodeString(hash); err != nil {
+		// Probably a nix hash and we're doing the opposite.
+		nixHash := nixtypes.TypedNixHash{}
+		err = nixHash.UnmarshalText([]byte(hash))
+		if err != nil {
+			cmdCtx.logger.Error("Input was not usable as hex-bytes nor as a Nix Hash")
+			return err
+		}
+		cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s\n", prefix, hex.EncodeToString(nixHash.Hash))))
+	} else {
+		// Reformat as a nix hash
+		nixHash := nixtypes.TypedNixHash{
+			HashName: prefix,
+			Hash:     decoded,
+		}
+		cmdCtx.stdOut.Write([]byte(nixHash.String()))
+		cmdCtx.stdOut.Write([]byte("\n"))
+	}
+	return nil
+}
 
 func DebugGenerateKey(cmdCtx CmdContext) error {
 	privateKey, err := nixtypes.GeneratePrivateKey(CLI.Debug.GenerateKey.Name)

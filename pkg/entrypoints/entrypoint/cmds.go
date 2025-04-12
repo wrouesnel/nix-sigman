@@ -74,6 +74,9 @@ func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCl
 	case "debug sign <paths>":
 		err = DebugSign(cmdCtx)
 
+	case "debug convert <hash>":
+		err = DebugConvertHash(cmdCtx)
+
 	default:
 		err = &ErrCommandNotImplemented{Command: ctx.Command()}
 		logger.Error("Command not implemented")
