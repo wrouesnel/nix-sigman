@@ -20,8 +20,8 @@ func (e ErrInvalidDataFormat) Error() string {
 // NixBase32Field implements a field which is encoded as a
 type NixBase32Field []byte
 
-func (b *NixBase32Field) String() string {
-	return nixbase32.EncodeToString(*b)
+func (b NixBase32Field) String() string {
+	return nixbase32.EncodeToString(b)
 }
 
 func (b *NixBase32Field) UnmarshalText(text []byte) error {

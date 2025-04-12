@@ -7,8 +7,20 @@ import (
 	"github.com/fatih/color"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
+	"io"
 	"strings"
 )
+
+func DebugAsNix32(cmdCtx CmdContext) error {
+	b, err := io.ReadAll(cmdCtx.stdIn)
+	if err != nil {
+		cmdCtx.logger.Error("Error while reading input")
+		return err
+	}
+	cmdCtx.stdOut.Write([]byte(nixtypes.NixBase32Field(b).String()))
+	cmdCtx.stdOut.Write([]byte("\n"))
+	return nil
+}
 
 func DebugConvertHash(cmdCtx CmdContext) error {
 	hashStr := CLI.Debug.ConvertHash.Hash

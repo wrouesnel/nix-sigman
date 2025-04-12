@@ -34,8 +34,10 @@ var CLI struct {
 	PublicKeys  []string `help:"Public Keys"`
 
 	Debug struct {
+		AsNix32 struct {
+		} `cmd:"" help:"Output the given bytes as a Nix base32 string"`
 		ConvertHash struct {
-			Hash string "Hash"
+			Hash string `arg:"" help:"Hash to convert (hex or nix)"`
 		} `cmd:"" help:"Convert between hex and Nix hash encodings"`
 		Fingerprint struct {
 			Paths []string `arg:"" help:"NARInfo files" type:"existingfile" `
