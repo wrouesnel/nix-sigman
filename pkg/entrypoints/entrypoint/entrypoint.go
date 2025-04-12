@@ -6,6 +6,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/labstack/gommon/log"
 	"github.com/wrouesnel/kongutil"
+	"go.uber.org/zap/zapcore"
 	"os/signal"
 	"syscall"
 
@@ -93,6 +94,10 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 		deferredLogs = append(deferredLogs, err.Error())
 	}
 	logConfig.Encoding = CLI.Logging.Format
+	logConfig.EncoderConfig.EncodeTime = zapcore.RFC3339TimeEncoder
+	if CLI.Logging.Format == "console" {
+		logConfig.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	}
 
 	logger, err := logConfig.Build()
 	if err != nil {

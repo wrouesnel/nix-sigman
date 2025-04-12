@@ -132,7 +132,7 @@ func Bundle(cmdCtx CmdContext) error {
 		}
 
 		if len(nixRows) == 0 {
-			// TODO: log the failure
+			l.Warn("Could not find the requested path in the store")
 			return nil
 		}
 
@@ -166,6 +166,7 @@ func Bundle(cmdCtx CmdContext) error {
 			l.Error("Could not create compression writer")
 			return err
 		}
+		defer compWr.Close()
 
 		narWr := countwriter.NewWriter(io.MultiWriter(compWr, narHasher))
 
@@ -269,7 +270,7 @@ func Bundle(cmdCtx CmdContext) error {
 			NarHash:     nixtypes.TypedNixHash{hashType, hashBytes},
 			NarSize:     narFileSize,
 			References:  references,
-			Deriver:     deriver,
+			Deriver:     filepath.Base(deriver),
 			Sig:         sig,
 			Extra:       extra,
 		}
