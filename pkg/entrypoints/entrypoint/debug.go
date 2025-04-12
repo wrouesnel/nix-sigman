@@ -24,25 +24,33 @@ func DebugAsNix32(cmdCtx CmdContext) error {
 
 func DebugConvertHash(cmdCtx CmdContext) error {
 	hashStr := CLI.Debug.ConvertHash.Hash
-	prefix, hash, _ := strings.Cut(hashStr, ":")
+	prefix, hash, found := strings.Cut(hashStr, ":")
+	if !found {
+		prefix = ""
+		hash = hashStr
+	}
 
 	// Try and decode hex
 	if decoded, err := hex.DecodeString(hash); err != nil {
 		// Probably a nix hash and we're doing the opposite.
-		nixHash := nixtypes.TypedNixHash{}
-		err = nixHash.UnmarshalText([]byte(hash))
-		if err != nil {
+		decoded := nixtypes.NixBase32Field{}
+		if err = decoded.UnmarshalText([]byte(hash)); err != nil {
 			cmdCtx.logger.Error("Input was not usable as hex-bytes nor as a Nix Hash")
 			return err
 		}
-		cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s\n", prefix, hex.EncodeToString(nixHash.Hash))))
+		if prefix != "" {
+			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:", prefix)))
+		}
+		cmdCtx.stdOut.Write([]byte(hex.EncodeToString(decoded)))
+		cmdCtx.stdOut.Write([]byte("\n"))
 	} else {
 		// Reformat as a nix hash
-		nixHash := nixtypes.TypedNixHash{
-			HashName: prefix,
-			Hash:     decoded,
+		nixenc := nixtypes.NixBase32Field(decoded)
+
+		if prefix != "" {
+			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:", prefix)))
 		}
-		cmdCtx.stdOut.Write([]byte(nixHash.String()))
+		cmdCtx.stdOut.Write([]byte(nixenc.String()))
 		cmdCtx.stdOut.Write([]byte("\n"))
 	}
 	return nil
