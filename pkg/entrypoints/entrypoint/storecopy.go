@@ -115,7 +115,7 @@ func Bundle(cmdCtx CmdContext) error {
 
 	err = readPaths(cmdCtx, CLI.Bundle.Paths, func(path string) error {
 		shortPath := filepath.Base(path)
-		narId, _ := strings.CutSuffix(shortPath, "-")
+		narId, _, _ := strings.Cut(shortPath, "-")
 
 		l := l.With(zap.String("path_id", narId))
 
