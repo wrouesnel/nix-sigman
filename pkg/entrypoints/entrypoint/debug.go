@@ -15,7 +15,7 @@ func DebugGenerateKey(cmdCtx CmdContext) error {
 		return errors.Join(&ErrCommand{}, err)
 	}
 	cmdCtx.stdOut.Write([]byte(privateKey.String()))
-	cmdCtx.stdOut.Write([]byte("\b"))
+	cmdCtx.stdOut.Write([]byte("\n"))
 	return nil
 }
 
