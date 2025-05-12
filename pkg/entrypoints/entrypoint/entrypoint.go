@@ -62,6 +62,12 @@ var CLI struct {
 		} `cmd:"" help:"Generate a new key to stdout"`
 		PublicKey struct {
 		} `cmd:"" help:"Get public key from supplied key on stdin"`
+		ExtractTar struct {
+			Dryrun    bool   `help:"Don't actually extract anything'"`
+			Prefix    string `help:"Path prefix to match and remove while extracting"`
+			OutputDir string `arg:"" help:"Path to extract to"`
+			InputFile string `arg:"" help:"tar file (blank or - for stdin)" optional:"" default:"-"`
+		} `cmd:"" help:"Extract tarball containing a binary cache to the target"`
 	} `cmd:""`
 
 	Bundle      BundleConfig      `cmd:"" help:"Copy a NAR/NARInfo from the nix store"`

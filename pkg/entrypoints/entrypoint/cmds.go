@@ -59,6 +59,9 @@ func dispatchCommands(ctx *kong.Context, cmdCtx *CmdContext) error {
 	case "derivations show <paths>":
 		err = DerivationShow(cmdCtx)
 
+	case "debug extract-tar":
+		err = DebugExtractTar(cmdCtx)
+
 	case "debug generate-key <name>":
 		err = DebugGenerateKey(cmdCtx)
 
@@ -79,6 +82,12 @@ func dispatchCommands(ctx *kong.Context, cmdCtx *CmdContext) error {
 
 	case "debug to-bytes <format>":
 		err = DebugToBytes(cmdCtx)
+
+	case "debug extract-tar <output-dir>":
+		err = DebugExtractTar(cmdCtx)
+
+	case "debug extract-tar <output-dir> <input-file>":
+		err = DebugExtractTar(cmdCtx)
 
 	default:
 		err = &ErrCommandNotImplemented{Command: ctx.Command()}

@@ -1,6 +1,7 @@
 package entrypoint
 
 import (
+	"archive/tar"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -10,6 +11,8 @@ import (
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -153,4 +156,111 @@ func DebugSign(cmdCtx *CmdContext) error {
 		return nil
 	})
 	return err
+}
+
+// DebugExtractTar implements a basic helper function to extract a tarball and filter
+// paths.
+func DebugExtractTar(cmdCtx *CmdContext) error {
+	l := cmdCtx.logger
+	outputDir := pathlib.NewPath(CLI.Debug.ExtractTar.OutputDir, pathlib.PathWithAfero(cmdCtx.fs)).Clean()
+	l.Debug("Ensuring output directory exists", zap.String("output_dir", outputDir.String()))
+	if outputDir.Name() != "/" {
+		if err := outputDir.MkdirAllMode(os.FileMode(0755)); err != nil {
+			return errors.Join(&ErrCommand{}, errors.New("could not make output directory"), err)
+		}
+	}
+
+	reader := cmdCtx.stdIn
+	if CLI.Debug.ExtractTar.InputFile != "-" && CLI.Debug.ExtractTar.InputFile != "" {
+		inputFile, err := os.Open(CLI.Debug.ExtractTar.InputFile)
+		if err != nil {
+			return errors.Join(&ErrCommand{}, err)
+		}
+		defer inputFile.Close()
+		reader = inputFile
+	}
+
+	tarReader := tar.NewReader(reader)
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			l.Error("Error while reading tar file", zap.Error(err))
+			return errors.Join(&ErrCommand{}, err)
+		}
+
+		cleanedPath := filepath.Clean(header.Name)
+		if strings.HasPrefix(cleanedPath, CLI.Debug.ExtractTar.Prefix) {
+			destPathStr := strings.TrimPrefix(cleanedPath, CLI.Debug.ExtractTar.Prefix)
+			fields := []zap.Field{zap.String("archive_path", cleanedPath), zap.String("dest_path", destPathStr)}
+			if CLI.Debug.ExtractTar.Dryrun {
+				fields = append(fields, zap.Bool("dryrun", CLI.Debug.ExtractTar.Dryrun))
+			}
+			l.Debug("Extracting", fields...)
+			if CLI.Debug.ExtractTar.Dryrun {
+				continue
+			}
+			destPath := outputDir.Join(destPathStr).Clean()
+			if destPath.Parent().Name() == "/" && destPath.Name() == "/" {
+				// This is the root, we never need to create it.
+				continue
+			}
+
+			if header.FileInfo().IsDir() {
+				// Just make directories
+				if err := destPath.MkdirAllMode(os.FileMode(0755)); err != nil {
+					l.Error("Could not create destination path", zap.Error(err))
+					return errors.Join(&ErrCommand{}, err)
+				}
+			} else {
+				exists, err := destPath.Exists()
+				if err != nil {
+					l.Error("Could not check path existence", zap.Error(err))
+					return errors.Join(&ErrCommand{}, err)
+				}
+				if exists {
+					destSize, err := destPath.Size()
+					if err != nil {
+						l.Error("Could not check path size", zap.Error(err))
+						return errors.Join(&ErrCommand{}, err)
+					}
+					if destSize == header.Size {
+						l.Debug("Skipped (exists and size matches)", fields...)
+						continue
+					}
+					l.Debug("Size does not match - replacing")
+					err = destPath.Remove()
+					if err != nil {
+						l.Error("Could not remove incomplete file", zap.Error(err))
+						return errors.Join(&ErrCommand{}, err)
+					}
+				}
+
+				err = func() error {
+					dh, err := destPath.Create()
+					if err != nil {
+						l.Error("Could not create destination path", zap.Error(err))
+						return err
+					}
+					defer dh.Close()
+
+					size, err := io.Copy(dh, tarReader)
+					if err != nil {
+						l.Error("Error while reading tar file")
+						return err
+					}
+					fields = append(fields, zap.Int64("nbytes", size))
+					l.Debug("Extracted", fields...)
+					return nil
+				}()
+				if err != nil {
+					return errors.Join(&ErrCommand{}, err)
+				}
+			}
+		}
+	}
+
+	return nil
 }
