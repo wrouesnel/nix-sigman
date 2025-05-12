@@ -32,12 +32,15 @@ require (
 	github.com/STARRY-S/zip v0.2.1 // indirect
 	github.com/abice/go-enum v0.6.0 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
+	github.com/aws/aws-sdk-go v1.42.9 // indirect
 	github.com/bodgit/plumbing v1.3.0 // indirect
 	github.com/bodgit/sevenzip v1.6.0 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
+	github.com/chigopher/pathlib v0.19.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/fclairamb/afero-s3 v0.3.1 // indirect
 	github.com/frankban/quicktest v1.14.6 // indirect
 	github.com/goccy/go-yaml v1.17.0 // indirect
 	github.com/golang/mock v1.6.0 // indirect
@@ -49,6 +52,7 @@ require (
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/huandu/xstrings v1.3.3 // indirect
 	github.com/imdario/mergo v0.3.13 // indirect
+	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
@@ -71,6 +75,7 @@ require (
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/sorairolake/lzip-go v0.3.5 // indirect
+	github.com/spf13/afero v1.14.0 // indirect
 	github.com/spf13/cast v1.3.1 // indirect
 	github.com/therootcompany/xz v1.0.1 // indirect
 	github.com/ulikunitz/xz v0.5.12 // indirect

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/chigopher/pathlib"
 	"github.com/fatih/color"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
@@ -12,7 +13,7 @@ import (
 	"strings"
 )
 
-func DebugToBytes(cmdCtx CmdContext) error {
+func DebugToBytes(cmdCtx *CmdContext) error {
 	text, err := io.ReadAll(cmdCtx.stdIn)
 	if err != nil {
 		cmdCtx.logger.Error("Error while reading input")
@@ -47,7 +48,7 @@ func DebugToBytes(cmdCtx CmdContext) error {
 	return nil
 }
 
-func DebugFromBytes(cmdCtx CmdContext) error {
+func DebugFromBytes(cmdCtx *CmdContext) error {
 	b, err := io.ReadAll(cmdCtx.stdIn)
 	if err != nil {
 		cmdCtx.logger.Error("Error while reading input")
@@ -66,7 +67,7 @@ func DebugFromBytes(cmdCtx CmdContext) error {
 	return nil
 }
 
-func DebugConvertHash(cmdCtx CmdContext) error {
+func DebugConvertHash(cmdCtx *CmdContext) error {
 	hashStr := CLI.Debug.ConvertHash.Hash
 	prefix, hash, found := strings.Cut(hashStr, ":")
 	if !found {
@@ -100,7 +101,7 @@ func DebugConvertHash(cmdCtx CmdContext) error {
 	return nil
 }
 
-func DebugGenerateKey(cmdCtx CmdContext) error {
+func DebugGenerateKey(cmdCtx *CmdContext) error {
 	privateKey, err := nixtypes.GeneratePrivateKey(CLI.Debug.GenerateKey.Name)
 	if err != nil {
 		cmdCtx.logger.Error("Failed generating private key", zap.Error(err))
@@ -111,7 +112,7 @@ func DebugGenerateKey(cmdCtx CmdContext) error {
 	return nil
 }
 
-func DebugPublicKey(cmdCtx CmdContext) error {
+func DebugPublicKey(cmdCtx *CmdContext) error {
 	privateKeys, err := nixtypes.ParsePrivateKeys(cmdCtx.stdIn)
 	if err != nil {
 		cmdCtx.logger.Error("Failed reading private keys", zap.Error(err))
@@ -126,28 +127,28 @@ func DebugPublicKey(cmdCtx CmdContext) error {
 	return nil
 }
 
-func DebugFingerprint(cmdCtx CmdContext) error {
-	err := readNinfoFromPaths(cmdCtx, CLI.Debug.Fingerprint.Paths, func(path string, ninfo *nixtypes.NarInfo) error {
-		cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s\n", color.CyanString(path), ninfo.Fingerprint())))
+func DebugFingerprint(cmdCtx *CmdContext) error {
+	err := readNinfoFromPaths(cmdCtx, CLI.Debug.Fingerprint.Paths, func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
+		cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s\n", color.CyanString(path.String()), ninfo.Fingerprint())))
 		return nil
 	})
 	return err
 }
 
-func DebugSign(cmdCtx CmdContext) error {
-	privateKeys, err := loadPrivateKeys(cmdCtx)
+func DebugSign(cmdCtx *CmdContext) error {
+	privateKeys, err := loadPrivateKeys(cmdCtx.logger)
 	if err != nil {
 		cmdCtx.logger.Error("Error loading private keys", zap.Error(err))
 		return errors.Join(&ErrCommand{}, err)
 	}
 
-	err = readNinfoFromPaths(cmdCtx, CLI.Debug.Sign.Paths, func(path string, ninfo *nixtypes.NarInfo) error {
+	err = readNinfoFromPaths(cmdCtx, CLI.Debug.Sign.Paths, func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
 		for _, key := range privateKeys {
 			value, err := ninfo.MakeSignature(key)
 			if err != nil {
-				cmdCtx.logger.Warn("Could not generate signature for file", zap.String("path", path))
+				cmdCtx.logger.Warn("Could not generate signature for file", zap.String("path", path.String()))
 			}
-			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s\n", color.CyanString(path), value.String())))
+			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s\n", color.CyanString(path.String()), value.String())))
 		}
 		return nil
 	})

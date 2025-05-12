@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/1lann/countwriter"
+	"github.com/chigopher/pathlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/mholt/archives"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
@@ -46,8 +47,7 @@ type NixDBValidPaths struct {
 const NixCacheInfoName = "nix-cache-info"
 
 // Bundle copies a given item out of the Nix Store
-func Bundle(cmdCtx CmdContext) error {
-
+func Bundle(cmdCtx *CmdContext) error {
 	l := cmdCtx.logger
 
 	var nixDbPath string
@@ -88,17 +88,19 @@ func Bundle(cmdCtx CmdContext) error {
 	}
 	l.Debug("Database Connected")
 
-	outputDir := CLI.Bundle.OutputDir
-	l.Debug("Ensuring output directory exists", zap.String("output_dir", outputDir))
-	if err := os.MkdirAll(outputDir, os.FileMode(0755)); err != nil {
-		return errors.Join(&ErrCommand{}, errors.New("could not make output directory"), err)
+	outputDir := pathlib.NewPath(CLI.Bundle.OutputDir, pathlib.PathWithAfero(cmdCtx.fs)).Clean()
+	l.Debug("Ensuring output directory exists", zap.String("output_dir", outputDir.String()))
+	if outputDir.Name() != "/" {
+		if err := outputDir.MkdirAllMode(os.FileMode(0755)); err != nil {
+			return errors.Join(&ErrCommand{}, errors.New("could not make output directory"), err)
+		}
 	}
-	narOutputDir := filepath.Join(outputDir, CLI.Bundle.NarOutputDir)
+	narOutputDir := outputDir.Join(CLI.Bundle.NarOutputDir)
 	if filepath.IsAbs(CLI.Bundle.NarOutputDir) {
-		narOutputDir = CLI.Bundle.NarOutputDir
+		narOutputDir = pathlib.NewPath(CLI.Bundle.NarOutputDir, pathlib.PathWithAfero(cmdCtx.fs))
 	}
-	l.Debug("Ensuring NAR output directory exists", zap.String("nar_output_dir", narOutputDir))
-	if err := os.MkdirAll(narOutputDir, os.FileMode(0755)); err != nil {
+	l.Debug("Ensuring NAR output directory exists", zap.String("nar_output_dir", narOutputDir.String()))
+	if err := narOutputDir.MkdirAllMode(os.FileMode(0755)); err != nil {
 		return errors.Join(&ErrCommand{}, errors.New("could not make nar output directory"), err)
 	}
 
@@ -113,8 +115,8 @@ func Bundle(cmdCtx CmdContext) error {
 
 	nixStore := new(string)
 
-	err = readPaths(cmdCtx, CLI.Bundle.Paths, func(path string) error {
-		shortPath := filepath.Base(path)
+	err = readPaths(cmdCtx, CLI.Bundle.Paths, func(path *pathlib.Path) error {
+		shortPath := path.Name()
 		narId, _, _ := strings.Cut(shortPath, "-")
 
 		l := l.With(zap.String("path_id", narId))
@@ -122,7 +124,7 @@ func Bundle(cmdCtx CmdContext) error {
 		nixRows := make([]NixDBValidPaths, 0)
 
 		if err := db.Select(&nixRows, "SELECT * FROM ValidPaths WHERE path LIKE  '%/' || ? || '-%';", narId); err != nil {
-			l.Warn("Failed to query path ID", zap.String("path", path))
+			l.Warn("Failed to query path ID", zap.String("path", path.String()))
 			return err
 		}
 
@@ -145,8 +147,8 @@ func Bundle(cmdCtx CmdContext) error {
 		l.Debug("Found store object", zap.Int64("id", nixRow.ID))
 
 		l.Info("Generating NAR file")
-		narPath := filepath.Join(narOutputDir, fmt.Sprintf("%s.nar.%s", narId, CLI.Bundle.Compression))
-		outputFile, err := os.Create(narPath)
+		narPath := narOutputDir.Join(fmt.Sprintf("%s.nar.%s", narId, CLI.Bundle.Compression))
+		outputFile, err := narPath.Create()
 		if err != nil {
 			l.Error("Could not create output file", zap.Error(err))
 			return errors.Join(errors.New("could not create output file"), err)
@@ -238,7 +240,7 @@ func Bundle(cmdCtx CmdContext) error {
 		referenceRows := make([]NixDBValidPaths, 0)
 
 		if err := db.Select(&referenceRows, "SELECT * FROM ValidPaths WHERE id in (SELECT reference FROM Refs WHERE referrer = ?);", nixRow.ID); err != nil {
-			l.Warn("Failed to query references", zap.String("path", path))
+			l.Warn("Failed to query references", zap.String("path", path.String()))
 			return err
 		}
 
@@ -252,18 +254,18 @@ func Bundle(cmdCtx CmdContext) error {
 			extra["CA"] = *nixRow.Ca
 		}
 
-		ninfoPath := filepath.Join(outputDir, fmt.Sprintf("%s.narinfo", narId))
+		ninfoPath := outputDir.Join(fmt.Sprintf("%s.narinfo", narId))
 		// Try and figure out the URL of the nar file relative to us
-		relNarPath, err := filepath.Rel(filepath.Dir(ninfoPath), narPath)
+		relNarPath, err := narPath.RelativeTo(ninfoPath.Parent())
 		if err != nil {
-			l.Error("Cannot determine relative path of NAR from Ninfo")
+			l.Error("Cannot determine relative path of NAR from Ninfo", zap.Error(err))
 			return errors.New("No sane nar URL can be determined")
 		}
 
 		// Populate the ninfo file
 		ninfo := nixtypes.NarInfo{
 			StorePath:   nixRow.Path,
-			URL:         relNarPath,
+			URL:         relNarPath.String(),
 			Compression: CLI.Bundle.Compression,
 			FileHash:    nixtypes.TypedNixHash{"sha256", fileHasher.Sum(nil)},
 			FileSize:    fileSize,
@@ -295,7 +297,7 @@ Priority: 10
 `, *nixStore,
 	)
 
-	err = os.WriteFile(filepath.Join(outputDir, NixCacheInfoName), []byte(metadata), os.FileMode(0644))
+	err = outputDir.Join(NixCacheInfoName).WriteFileMode([]byte(metadata), os.FileMode(0644))
 	if err != nil {
 		l.Error("Failed to write the nix-cache-info file", zap.Error(err))
 		return errors.Join(&ErrCommand{}, err)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/chigopher/pathlib"
 	"github.com/goccy/go-yaml"
 	"github.com/nix-community/go-nix/pkg/derivation"
 	"go.uber.org/zap"
@@ -30,7 +31,7 @@ type DerivationsConfig struct {
 
 // DerivationRecurse recursively follows a derivation until it find the
 // source roots.
-func DerivationShow(cmdCtx CmdContext) error {
+func DerivationShow(cmdCtx *CmdContext) error {
 	outputRoot := CLI.Derivations.Show.OutputRoot
 	if outputRoot != nil {
 		if err := os.MkdirAll(*outputRoot, os.FileMode(0755)); err != nil {
@@ -62,7 +63,7 @@ func DerivationShow(cmdCtx CmdContext) error {
 				}
 			}
 		}()
-		err := readPaths(cmdCtx, currentPaths, func(path string) error {
+		err := readPaths(cmdCtx, currentPaths, func(path *pathlib.Path) error {
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
 			}
@@ -72,7 +73,7 @@ func DerivationShow(cmdCtx CmdContext) error {
 				defer sem.Release(1)
 				l := cmdCtx.logger
 
-				fh, err := os.Open(path)
+				fh, err := path.Open()
 				if err != nil {
 					l.Warn("Could not read file", zap.Error(err))
 					errCh <- err
@@ -101,7 +102,7 @@ func DerivationShow(cmdCtx CmdContext) error {
 
 				if outputRoot != nil {
 					extension, _ := strings.CutPrefix(outputFormat, "-")
-					filename := fmt.Sprintf("%s.%s", filepath.Base(path), extension)
+					filename := fmt.Sprintf("%s.%s", path.Name(), extension)
 
 					if err := os.WriteFile(filepath.Join(*outputRoot, filename), output, os.FileMode(0644)); err != nil {
 						l.Error("could not write file", zap.Error(err))

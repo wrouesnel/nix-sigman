@@ -4,7 +4,11 @@ import (
 	"context"
 	"fmt"
 	"github.com/alecthomas/kong"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	s3 "github.com/fclairamb/afero-s3"
 	"github.com/labstack/gommon/log"
+	"github.com/spf13/afero"
 	"github.com/wrouesnel/kongutil"
 	"go.uber.org/zap/zapcore"
 	"os/signal"
@@ -27,6 +31,9 @@ var CLI struct {
 		Level  string `help:"logging level" default:"info"`
 		Format string `help:"logging format (${enum})" enum:"console,json" default:"console"`
 	} `embed:"" prefix:"log-"`
+
+	FsBackend string `help:"Filesystem backend for the binary cache" enum:"os,s3" default:"os"`
+	FsOpts    string `help:"Additional options for the filesystem handler" default:""`
 
 	PrivateKeyFiles []string `help:"Private Key Files" type:"existingfile"`
 	PublicKeyFiles  []string `help:"Public Key Files" type:"existingfile"`
@@ -128,7 +135,54 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 	//logger.Info("Configuring asset handling", zap.Bool("use-filesystem", CLI.Assets.UseFilesystem))
 	//assets.UseFilesystem(CLI.Assets.UseFilesystem)
 
-	if err := dispatchCommands(ctx, sigCtx, stdIn, stdOut); err != nil {
+	cmdCtx := &CmdContext{
+		logger: logger,
+		ctx:    sigCtx,
+		stdIn:  stdIn,
+		stdOut: stdOut,
+	}
+
+	switch CLI.FsBackend {
+	case "os":
+		cmdCtx.fs = afero.NewOsFs()
+		if CLI.FsOpts != "" {
+			logger.Error("--fs-opts has no effect for the OS backend and must be blank")
+			return 1
+		}
+	case "s3":
+		// In truly frustrating style, endpoint overrides aren't supported till V2,
+		// which this library isn't based on. Hack them in here.
+		endpointUrl := new(string)
+		if os.Getenv("AWS_ENDPOINT_URL") != "" {
+			*endpointUrl = os.Getenv("AWS_ENDPOINT_URL")
+		}
+		if os.Getenv("AWS_ENDPOINT_URL_S3") != "" {
+			*endpointUrl = os.Getenv("AWS_ENDPOINT_URL_S3")
+		}
+		forcePathStyle := new(bool)
+		if endpointUrl != nil {
+			*forcePathStyle = true
+		}
+		sess, err := session.NewSessionWithOptions(session.Options{
+			Config:            aws.Config{Endpoint: endpointUrl, S3ForcePathStyle: forcePathStyle},
+			SharedConfigState: session.SharedConfigEnable,
+		})
+		if err != nil {
+			logger.Error("Error creating S3 session", zap.Error(err))
+			return 1
+		}
+		s3fs := s3.NewFs(CLI.FsOpts, sess)
+		if s3fs == nil {
+			logger.Error("Error initializing the S3 FS")
+			return 1
+		}
+		cmdCtx.fs = s3fs
+	default:
+		logger.Error("Invalid filesystem backend", zap.String("filesystem", CLI.FsBackend))
+		return 1
+	}
+
+	if err := dispatchCommands(ctx, cmdCtx); err != nil {
 		logger.Error("Error from command", zap.Error(err))
 	}
 

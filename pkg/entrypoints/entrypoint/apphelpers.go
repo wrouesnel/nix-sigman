@@ -6,18 +6,19 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"github.com/chigopher/pathlib"
 	"github.com/samber/lo"
+	"github.com/spf13/afero"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
 // readNinfoFromPaths reads a list of paths and optionally reads an additional file from
 // stdin (if "-" is specified in the path list).
-func readNinfoFromPaths(cmdCtx CmdContext, paths []string, cb func(path string, ninfo *nixtypes.NarInfo) error) error {
+func readNinfoFromPaths(cmdCtx *CmdContext, paths []string, cb func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error) error {
 	var commandErr error
 	readStdin := false
 	if lo.Contains(paths, "-") {
@@ -28,7 +29,7 @@ func readNinfoFromPaths(cmdCtx CmdContext, paths []string, cb func(path string, 
 		if path == "-" {
 			continue
 		}
-		fileBytes, err := os.ReadFile(path)
+		fileBytes, err := pathlib.NewPath(path, pathlib.PathWithAfero(cmdCtx.fs)).ReadFile()
 		if err != nil {
 			cmdCtx.logger.Warn("Could not read file", zap.String("path", path), zap.Error(err))
 			commandErr = errors.Join(&ErrCommand{}, errors.New("not all files were read"))
@@ -40,7 +41,7 @@ func readNinfoFromPaths(cmdCtx CmdContext, paths []string, cb func(path string, 
 			commandErr = errors.Join(&ErrCommand{}, errors.New("not all files were read"))
 			continue
 		}
-		if err := cb(path, &ninfo); err != nil {
+		if err := cb(pathlib.NewPath(path, pathlib.PathWithAfero(cmdCtx.fs)), &ninfo); err != nil {
 			cmdCtx.logger.Error("Aborting error during path handling", zap.String("path", path), zap.Error(err))
 			return errors.Join(&ErrCommand{}, err)
 		}
@@ -57,7 +58,9 @@ func readNinfoFromPaths(cmdCtx CmdContext, paths []string, cb func(path string, 
 				cmdCtx.logger.Warn("Could not parse stdin", zap.Error(err))
 				commandErr = errors.Join(&ErrCommand{}, errors.New("not all files were read"))
 			} else {
-				if err := cb("-", &ninfo); err != nil {
+				// represent stdin as a memmap fs path
+				stdinPath := pathlib.NewPath("-", pathlib.PathWithAfero(afero.NewMemMapFs()))
+				if err := cb(stdinPath, &ninfo); err != nil {
 					cmdCtx.logger.Error("Aborting error during path handling", zap.String("path", "-"), zap.Error(err))
 					return errors.Join(&ErrCommand{}, err)
 				}
@@ -68,7 +71,7 @@ func readNinfoFromPaths(cmdCtx CmdContext, paths []string, cb func(path string, 
 }
 
 // readPathsFromStdin allows reading a list of paths from stdin
-func readPaths(ctx CmdContext, paths []string, cb func(path string) error) error {
+func readPaths(ctx *CmdContext, paths []string, cb func(path *pathlib.Path) error) error {
 	readStdin := false
 	if lo.Contains(paths, "-") {
 		readStdin = true
@@ -78,7 +81,7 @@ func readPaths(ctx CmdContext, paths []string, cb func(path string) error) error
 		if path == "-" {
 			continue
 		}
-		if err := cb(path); err != nil {
+		if err := cb(pathlib.NewPath(path, pathlib.PathWithAfero(ctx.fs))); err != nil {
 			ctx.logger.Error("Aborting error during path handling",
 				zap.String("path", path), zap.Error(err))
 			return errors.Join(&ErrCommand{}, err)
@@ -95,7 +98,7 @@ func readPaths(ctx CmdContext, paths []string, cb func(path string) error) error
 				continue
 			}
 
-			if err := cb(path); err != nil {
+			if err := cb(pathlib.NewPath(path, pathlib.PathWithAfero(ctx.fs))); err != nil {
 				ctx.logger.Error("Aborting error during path handling",
 					zap.String("path", path), zap.Error(err))
 				return errors.Join(&ErrCommand{}, err)
@@ -108,7 +111,7 @@ func readPaths(ctx CmdContext, paths []string, cb func(path string) error) error
 	return nil
 }
 
-func loadPrivateKeys(cmdCtx CmdContext) ([]nixtypes.NamedPrivateKey, error) {
+func loadPrivateKeys(logger *zap.Logger) ([]nixtypes.NamedPrivateKey, error) {
 	privateKeys := []nixtypes.NamedPrivateKey{}
 	for _, path := range CLI.PrivateKeyFiles {
 		fh, err := os.Open(path)
@@ -128,11 +131,11 @@ func loadPrivateKeys(cmdCtx CmdContext) ([]nixtypes.NamedPrivateKey, error) {
 		}
 		privateKeys = append(privateKeys, r)
 	}
-	cmdCtx.logger.Debug("Loaded Private Keys", zap.Int("private_keys_count", len(privateKeys)))
+	logger.Debug("Loaded Private Keys", zap.Int("private_keys_count", len(privateKeys)))
 	return privateKeys, nil
 }
 
-func loadPublicKeys(cmdCtx CmdContext) ([]nixtypes.NamedPublicKey, error) {
+func loadPublicKeys(logger *zap.Logger) ([]nixtypes.NamedPublicKey, error) {
 	publicKeys := []nixtypes.NamedPublicKey{}
 	for _, path := range CLI.PublicKeyFiles {
 		fh, err := os.Open(path)
@@ -152,12 +155,12 @@ func loadPublicKeys(cmdCtx CmdContext) ([]nixtypes.NamedPublicKey, error) {
 		}
 		publicKeys = append(publicKeys, r)
 	}
-	cmdCtx.logger.Debug("Loaded Public Keys", zap.Int("public_keys_count", len(publicKeys)))
+	logger.Debug("Loaded Public Keys", zap.Int("public_keys_count", len(publicKeys)))
 	return publicKeys, nil
 }
 
-func loadNarInfo(l *zap.Logger, path string) (nixtypes.NarInfo, error) {
-	fileBytes, err := os.ReadFile(path)
+func loadNarInfo(l *zap.Logger, path *pathlib.Path) (nixtypes.NarInfo, error) {
+	fileBytes, err := path.ReadFile()
 	if err != nil {
 		l.Warn("Could not read file", zap.Error(err))
 		return nixtypes.NarInfo{}, err
@@ -173,11 +176,11 @@ func loadNarInfo(l *zap.Logger, path string) (nixtypes.NarInfo, error) {
 
 // narHashCheck checks the actual file hash.
 // TODO: consider moving to a NarInfo function.
-func narHashCheck(l *zap.Logger, path string, ninfo nixtypes.NarInfo) (bool, nixtypes.TypedNixHash, error) {
-	narPath := filepath.Join(filepath.Dir(path), ninfo.URL)
-	nl := l.With(zap.String("nar_path", narPath))
+func narHashCheck(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) (bool, nixtypes.TypedNixHash, error) {
+	narPath := path.Parent().Join(ninfo.URL)
+	nl := l.With(zap.String("nar_path", narPath.String()))
 	nl.Debug("Hash Verification")
-	fh, err := os.Open(narPath)
+	fh, err := narPath.Open()
 	defer fh.Close()
 	if err != nil {
 		nl.Warn("Could not find file", zap.Error(err))
@@ -201,9 +204,9 @@ func narHashCheck(l *zap.Logger, path string, ninfo nixtypes.NarInfo) (bool, nix
 	return bytes.Equal(obtainedHash.Hash, ninfo.FileHash.Hash), obtainedHash, nil
 }
 
-func backNinfo(l *zap.Logger, path string) error {
+func backNinfo(l *zap.Logger, path *pathlib.Path) error {
 	backupPath := fmt.Sprintf("%s.bak", path)
-	oldNarBytes, err := os.ReadFile(path)
+	oldNarBytes, err := path.ReadFile()
 	if err != nil {
 		return err
 	}
@@ -213,18 +216,18 @@ func backNinfo(l *zap.Logger, path string) error {
 	return nil
 }
 
-func writeNInfo(l *zap.Logger, path string, ninfo nixtypes.NarInfo) error {
-	newPath := fmt.Sprintf("%s.new", path)
+func writeNInfo(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) error {
+	newPath := path.Parent().Join(fmt.Sprintf("%s.new", path.Name()))
 	newBytes, err := ninfo.MarshalText()
 	if err != nil {
 		l.Warn("Failed to serialize narinfo file - signing aborted", zap.Error(err))
 		return err
 	}
-	if err := os.WriteFile(newPath, newBytes, os.FileMode(0644)); err != nil {
+	if err := newPath.WriteFileMode(newBytes, os.FileMode(0644)); err != nil {
 		l.Warn("Failed to write narinfo file - signing aborted")
 		return err
 	}
-	if err := os.Rename(newPath, path); err != nil {
+	if err := newPath.Rename(path); err != nil {
 		l.Warn("Failed to atomically replace narinfo file - signing aborted")
 		return err
 	}

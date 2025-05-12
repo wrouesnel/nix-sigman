@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/alecthomas/kong"
+	"github.com/spf13/afero"
 	"go.uber.org/zap"
 	"io"
 )
@@ -29,24 +30,20 @@ type CmdContext struct {
 	ctx    context.Context
 	stdIn  io.ReadCloser
 	stdOut io.Writer
+	fs     afero.Fs
 }
 
 // Main command dispatcher for the program entrypoint. New commands should be added here, or they won't be
 // invocable.
 //
 //nolint:revive
-func dispatchCommands(ctx *kong.Context, cliCtx context.Context, stdIn io.ReadCloser, stdOut io.Writer) error {
+func dispatchCommands(ctx *kong.Context, cmdCtx *CmdContext) error {
 	var err error
 	logger := zap.L().With(zap.String("command", ctx.Command()))
 
-	cmdCtx := CmdContext{
-		logger: logger,
-		ctx:    cliCtx,
-		stdIn:  stdIn,
-		stdOut: stdOut,
-	}
-
 	switch ctx.Command() {
+	case "server":
+		err = Server(cmdCtx)
 	case "sign <nar-info-files>":
 		err = Sign(cmdCtx)
 
