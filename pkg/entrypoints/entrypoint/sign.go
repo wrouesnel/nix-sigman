@@ -13,7 +13,7 @@ import (
 
 //nolint:gochecknoglobals
 type SignConfig struct {
-	BackupNARInfos bool     `help:"Make backups of NARinfo files" default:"true"`
+	BackupNARInfos bool     `help:"Make backups of NARinfo files" default:"false"`
 	SigningKeys    []string `help:"Names of keys to sign with (default all)" default:"*"`
 	NarInfoFiles   []string `arg:"" help:"NARInfo files to sign - specify - to read list from stdin"`
 }

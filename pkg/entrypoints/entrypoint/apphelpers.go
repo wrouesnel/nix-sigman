@@ -223,13 +223,25 @@ func writeNInfo(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) error
 		l.Warn("Failed to serialize narinfo file - signing aborted", zap.Error(err))
 		return err
 	}
-	if err := newPath.WriteFileMode(newBytes, os.FileMode(0644)); err != nil {
-		l.Warn("Failed to write narinfo file - signing aborted")
-		return err
+	switch CLI.FsBackend {
+	case "s3":
+		// For S3, just do an in-place PUT
+		l.Debug("In-place PUT due to object-type storage")
+		if err := path.WriteFileMode(newBytes, os.FileMode(0644)); err != nil {
+			l.Warn("Failed to write narinfo file - signing aborted")
+			return err
+		}
+	default:
+		l.Debug("Atomic replace with temporary file due to file-like storage")
+		if err := newPath.WriteFileMode(newBytes, os.FileMode(0644)); err != nil {
+			l.Warn("Failed to write narinfo file - signing aborted")
+			return err
+		}
+		if err := newPath.Rename(path); err != nil {
+			l.Debug("Failed to atomically replace narinfo file - attempting fallback")
+			return err
+		}
 	}
-	if err := newPath.Rename(path); err != nil {
-		l.Warn("Failed to atomically replace narinfo file - signing aborted")
-		return err
-	}
+
 	return nil
 }

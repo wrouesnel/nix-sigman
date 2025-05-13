@@ -75,6 +75,7 @@ var CLI struct {
 	Verify      VerifyConfig      `cmd:"" help:"Verify a Nix archive signature"`
 	Validate    ValidateConfig    `cmd:"" help:"Validate a NarInfo file format"`
 	Derivations DerivationsConfig `cmd:"" help:"Manipulate derivations"`
+	Proxy       ProxyConfig       `cmd:"" help:"Serve a binary cache with resigning"`
 }
 
 // Entrypoint is the real application entrypoint. This structure allows test packages to E2E-style tests invoking commmands
