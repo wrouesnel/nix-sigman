@@ -238,7 +238,7 @@ func writeNInfo(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) error
 			return err
 		}
 		if err := newPath.Rename(path); err != nil {
-			l.Debug("Failed to atomically replace narinfo file - attempting fallback")
+			l.Warn("Failed to atomically replace narinfo file")
 			return err
 		}
 	}
