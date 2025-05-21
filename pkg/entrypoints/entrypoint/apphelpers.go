@@ -227,7 +227,10 @@ func backNinfo(l *zap.Logger, path *pathlib.Path) error {
 func NormalizeOutputDir(outputDir string) string {
 	switch CLI.FsBackend {
 	case "s3":
-		if outputDir == "." {
+		if strings.HasPrefix(outputDir, ".") {
+			outputDir = fmt.Sprintf("/%s", outputDir[1:])
+		}
+		if outputDir == "" {
 			outputDir = "/"
 		}
 		return outputDir

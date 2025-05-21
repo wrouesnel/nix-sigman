@@ -65,9 +65,12 @@ var CLI struct {
 		ExtractTar struct {
 			Dryrun    bool   `help:"Don't actually extract anything'"`
 			Prefix    string `help:"Path prefix to match and remove while extracting"`
-			OutputDir string `arg:"" help:"Path to extract to"`
+			OutputDir string `arg:"" help:"Path to extract to" default:"."`
 			InputFile string `arg:"" help:"tar file (blank or - for stdin)" optional:"" default:"-"`
 		} `cmd:"" help:"Extract tarball containing a binary cache to the target"`
+		List struct {
+			Prefix string `help:"Prefix to list files under" default:"."`
+		} `cmd:"" help:"List all narinfo files in target"`
 	} `cmd:""`
 
 	Bundle      BundleConfig      `cmd:"" help:"Copy a NAR/NARInfo from the nix store"`
@@ -76,6 +79,7 @@ var CLI struct {
 	Validate    ValidateConfig    `cmd:"" help:"Validate a NarInfo file format"`
 	Derivations DerivationsConfig `cmd:"" help:"Manipulate derivations"`
 	Proxy       ProxyConfig       `cmd:"" help:"Serve a binary cache with resigning"`
+	NewKey      NewKeyConfig      `cmd:"" help:"Generate a new signing keypair for the current user"`
 }
 
 // Entrypoint is the real application entrypoint. This structure allows test packages to E2E-style tests invoking commmands

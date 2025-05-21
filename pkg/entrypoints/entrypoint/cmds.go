@@ -56,6 +56,9 @@ func dispatchCommands(ctx *kong.Context, cmdCtx *CmdContext) error {
 	case "bundle <paths>":
 		err = Bundle(cmdCtx)
 
+	case "new-key":
+		err = NewKey(cmdCtx)
+
 	case "derivations show <paths>":
 		err = DerivationShow(cmdCtx)
 
@@ -88,6 +91,9 @@ func dispatchCommands(ctx *kong.Context, cmdCtx *CmdContext) error {
 
 	case "debug extract-tar <output-dir> <input-file>":
 		err = DebugExtractTar(cmdCtx)
+
+	case "debug list":
+		err = DebugList(cmdCtx)
 
 	default:
 		err = &ErrCommandNotImplemented{Command: ctx.Command()}

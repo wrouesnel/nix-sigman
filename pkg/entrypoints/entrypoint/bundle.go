@@ -23,7 +23,7 @@ import (
 type BundleConfig struct {
 	NixDB        string `help:"Path to the nix database" default:"/nix/var/nix/db/db.sqlite"`
 	Compression  string `help:"NAR file compression" enum:"xz" default:"xz"`
-	OutputDir    string `help:"Output directory to write the bundles too" type:"path" default:"."`
+	OutputDir    string `help:"Output directory to write the bundles too" default:"."`
 	NarOutputDir string `help:"Subdirectory to save NAR files too" default:"nar"`
 	// TODO: ShardStore - build a sharded store with multiple directory trees
 	Paths []string `arg:"" help:"nix paths or hashes to bundle"`
@@ -95,7 +95,7 @@ func Bundle(cmdCtx *CmdContext) error {
 			return errors.Join(&ErrCommand{}, errors.New("could not make output directory"), err)
 		}
 	}
-	narOutputDir := outputDir.Join(CLI.Bundle.NarOutputDir)
+	narOutputDir := outputDir.Join(CLI.Bundle.NarOutputDir).Clean()
 	if filepath.IsAbs(CLI.Bundle.NarOutputDir) {
 		narOutputDir = pathlib.NewPath(CLI.Bundle.NarOutputDir, pathlib.PathWithAfero(cmdCtx.fs))
 	}

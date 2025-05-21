@@ -264,3 +264,20 @@ func DebugExtractTar(cmdCtx *CmdContext) error {
 
 	return nil
 }
+
+// DebugList will list all the objects from the given path.
+func DebugList(cmdCtx *CmdContext) error {
+	l := cmdCtx.logger
+	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Debug.List.Prefix), pathlib.PathWithAfero(cmdCtx.fs)).Clean()
+	l.Info("Reading directory (this may take a while)")
+	dirNames, err := outputDir.ReadDir()
+	if err != nil {
+		return errors.Join(&ErrCommand{}, err)
+	}
+	for _, name := range dirNames {
+		if strings.HasSuffix(name.Name(), ".narinfo") {
+			fmt.Fprintf(cmdCtx.stdOut, "%s\n", name.Name())
+		}
+	}
+	return nil
+}
