@@ -8,6 +8,7 @@ import (
 	lzap "github.com/MadAppGang/httplog/zap"
 	"github.com/chigopher/pathlib"
 	"github.com/julienschmidt/httprouter"
+	"github.com/samber/lo"
 	"github.com/wrouesnel/multihttp"
 	"go.uber.org/zap"
 	"go.withmatt.com/httpheaders"
@@ -18,9 +19,10 @@ import (
 
 //nolint:gochecknoglobals
 type ProxyConfig struct {
-	SigningMap map[string]string `help:"Map of public key names to private key names to sign if present"`
-	Listen     []string          `help:"Listen addresses" default:"tcp://127.0.0.1:8080"`
-	Root       string            `arg:"" help:"Root path of the binary cache"`
+	SigningMap     map[string]string `help:"Map of public key names to private key names to sign if present"`
+	SigningMapFile string            `help:"File to load the signing map from"`
+	Listen         []string          `help:"Listen addresses" default:"tcp://127.0.0.1:8080"`
+	Root           string            `arg:"" help:"Root path of the binary cache"`
 }
 
 // Proxy implements the dynamic resigning server
@@ -41,8 +43,25 @@ func Proxy(cmdCtx *CmdContext) error {
 		return errors.Join(&ErrCommand{}, err)
 	}
 
+	signingMap := map[string]string{}
+
+	if CLI.Proxy.SigningMapFile != "" {
+		signingMap, err = loadSigningMapFile(CLI.Proxy.SigningMapFile)
+		if err != nil {
+			cmdCtx.logger.Error("Signing map file specified but could not be loaded")
+			return errors.Join(&ErrCommand{}, err)
+		}
+	}
+
+	for k, v := range CLI.Proxy.SigningMap {
+		if lo.HasKey(signingMap, k) {
+			cmdCtx.logger.Debug("Command line overriding signing map file key", zap.String("key", k))
+		}
+		signingMap[k] = v
+	}
+
 	l.Info("Building resigning map")
-	signers, err := buildSigningMap(publicKeys, privateKeys, CLI.Proxy.SigningMap)
+	signers, err := buildSigningMap(publicKeys, privateKeys, signingMap)
 	if err != nil {
 		return errors.Join(&ErrCommand{}, err)
 	}

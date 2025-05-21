@@ -15,6 +15,7 @@ import (
 type SignConfig struct {
 	BackupNARInfos bool              `help:"Make backups of NARinfo files" default:"false"`
 	SigningMap     map[string]string `help:"Conditionally sign by name. Sign all if absent."`
+	SigningMapFile string            `help:"File to load the signing map from - igored if empty"`
 	SigningKeys    []string          `help:"Names of keys to sign with (default all)" default:"*"`
 	NarInfoFiles   []string          `arg:"" help:"NARInfo files to sign - specify - to read list from stdin"`
 }
@@ -55,8 +56,26 @@ func Sign(cmdCtx *CmdContext) error {
 	}
 
 	var signers ConditionalResigners
-	if len(CLI.Sign.SigningMap) > 0 {
+	if len(CLI.Sign.SigningMap) > 0 || CLI.Sign.SigningMapFile != "" {
 		l.Info("Conditional resigning requested")
+
+		signingMap := map[string]string{}
+
+		if CLI.Proxy.SigningMapFile != "" {
+			signingMap, err = loadSigningMapFile(CLI.Sign.SigningMapFile)
+			if err != nil {
+				cmdCtx.logger.Error("Signing map file specified but could not be loaded")
+				return errors.Join(&ErrCommand{}, err)
+			}
+		}
+
+		for k, v := range CLI.Sign.SigningMap {
+			if lo.HasKey(signingMap, k) {
+				cmdCtx.logger.Debug("Command line overriding signing map file key", zap.String("key", k))
+			}
+			signingMap[k] = v
+		}
+
 		signers, err = buildSigningMap(publicKeys, signingKeys, CLI.Sign.SigningMap)
 		if err != nil {
 			return errors.Join(&ErrCommand{}, err)

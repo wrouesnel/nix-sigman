@@ -99,7 +99,7 @@ func readPaths(ctx *CmdContext, paths []string, cb func(path *pathlib.Path) erro
 
 			line := sc.Text()
 			path := strings.TrimSpace(line)
-			if line == "" {
+			if path == "" {
 				// Just skip empty lines
 				continue
 			}
@@ -328,4 +328,29 @@ func buildSigningMap(publicKeys []nixtypes.NamedPublicKey,
 		})
 	}
 	return
+}
+
+func loadSigningMapFile(path string) (map[string]string, error) {
+	signingMap := map[string]string{}
+
+	signingMapFile := pathlib.NewPath(CLI.Proxy.SigningMapFile, pathlib.PathWithAfero(afero.OsFs{}))
+	fh, err := signingMapFile.Open()
+	if err != nil {
+		return signingMap, errors.Join(&ErrCommand{}, err)
+	}
+	sc := bufio.NewScanner(fh)
+	for sc.Scan() {
+		line := sc.Text()
+		path := strings.TrimSpace(line)
+		if path == "" || strings.HasPrefix(path, "#") {
+			// Just skip empty lines and comments
+			continue
+		}
+		fromKey, toKey, found := strings.Cut(path, "=")
+		if !found {
+			return signingMap, fmt.Errorf("invalid map entry: %s", path)
+		}
+		signingMap[fromKey] = toKey
+	}
+	return signingMap, nil
 }
