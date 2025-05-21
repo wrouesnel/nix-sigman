@@ -88,7 +88,7 @@ func Bundle(cmdCtx *CmdContext) error {
 	}
 	l.Debug("Database Connected")
 
-	outputDir := pathlib.NewPath(CLI.Bundle.OutputDir, pathlib.PathWithAfero(cmdCtx.fs)).Clean()
+	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Bundle.OutputDir), pathlib.PathWithAfero(cmdCtx.fs)).Clean()
 	l.Debug("Ensuring output directory exists", zap.String("output_dir", outputDir.String()))
 	if outputDir.Name() != "/" {
 		if err := outputDir.MkdirAllMode(os.FileMode(0755)); err != nil {

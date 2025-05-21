@@ -162,7 +162,7 @@ func DebugSign(cmdCtx *CmdContext) error {
 // paths.
 func DebugExtractTar(cmdCtx *CmdContext) error {
 	l := cmdCtx.logger
-	outputDir := pathlib.NewPath(CLI.Debug.ExtractTar.OutputDir, pathlib.PathWithAfero(cmdCtx.fs)).Clean()
+	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Debug.ExtractTar.OutputDir), pathlib.PathWithAfero(cmdCtx.fs)).Clean()
 	l.Debug("Ensuring output directory exists", zap.String("output_dir", outputDir.String()))
 	if outputDir.Name() != "/" {
 		if err := outputDir.MkdirAllMode(os.FileMode(0755)); err != nil {

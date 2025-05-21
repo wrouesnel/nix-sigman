@@ -8,9 +8,7 @@ import (
 	lzap "github.com/MadAppGang/httplog/zap"
 	"github.com/chigopher/pathlib"
 	"github.com/julienschmidt/httprouter"
-	"github.com/samber/lo"
 	"github.com/wrouesnel/multihttp"
-	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
 	"go.withmatt.com/httpheaders"
 	"io"
@@ -43,62 +41,10 @@ func Proxy(cmdCtx *CmdContext) error {
 		return errors.Join(&ErrCommand{}, err)
 	}
 
-	privMap := lo.SliceToMap(privateKeys, func(item nixtypes.NamedPrivateKey) (string, nixtypes.NamedPrivateKey) {
-		return item.KeyName, item
-	})
-
-	pubMap := lo.SliceToMap(publicKeys, func(item nixtypes.NamedPublicKey) (string, nixtypes.NamedPublicKey) {
-		return item.KeyName, item
-	})
-
 	l.Info("Building resigning map")
-	var setupErr error
-	var signers []func(ninfo *nixtypes.NarInfo) error
-	for k, v := range CLI.Proxy.SigningMap {
-		requiredPublicKeys := strings.Split(k, "&")
-		requiredPrivateKeys := strings.Split(v, ",")
-
-		requiredKeys := []nixtypes.NamedPublicKey{}
-		for _, key := range requiredPublicKeys {
-			if !lo.HasKey(pubMap, key) && key != "" {
-				l.Error("Requested public key has not been loaded in process", zap.String("public_key", key))
-				setupErr = errors.New("configuration error")
-			} else if key != "" {
-				requiredKeys = append(requiredKeys, pubMap[key])
-			}
-		}
-
-		signingKeys := []nixtypes.NamedPrivateKey{}
-		for _, key := range requiredPrivateKeys {
-			if !lo.HasKey(privMap, key) {
-				l.Error("Requested private key has not been loaded in process", zap.String("private", key))
-				setupErr = errors.New("configuration error")
-			} else {
-				signingKeys = append(signingKeys, privMap[key])
-			}
-		}
-
-		signers = append(signers, func(ninfo *nixtypes.NarInfo) error {
-			// Abort as soon as something doesn't match
-			for _, key := range requiredKeys {
-				match, _ := ninfo.Verify(key)
-				if !match {
-					return nil
-				}
-			}
-			// Good signatures - resign
-			for _, key := range signingKeys {
-				_, _, err = ninfo.Sign(key)
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		})
-	}
-
-	if setupErr != nil {
-		return setupErr
+	signers, err := buildSigningMap(publicKeys, privateKeys, CLI.Proxy.SigningMap)
+	if err != nil {
+		return errors.Join(&ErrCommand{}, err)
 	}
 
 	rootDir := pathlib.NewPath(CLI.Proxy.Root, pathlib.PathWithAfero(cmdCtx.fs)).Clean()
@@ -133,13 +79,22 @@ func Proxy(cmdCtx *CmdContext) error {
 				return
 			}
 
+			didNewSignature := false
 			for _, signer := range signers {
-				err = signer(&ninfo)
+				didSign, err := signer(&ninfo)
 				if err != nil {
 					l.Warn("Signing Error", zap.String("error", err.Error()))
 					w.WriteHeader(http.StatusInternalServerError)
 					w.Write([]byte(fmt.Sprintf("Signing Error: %s", name)))
 				}
+				if didSign {
+					didNewSignature = true
+				}
+			}
+			if didNewSignature {
+				l.Debug("Resigned narinfo file", zap.String("name", name))
+			} else {
+				l.Debug("No match narinfo file", zap.String("name", name))
 			}
 
 			content, err := ninfo.MarshalText()

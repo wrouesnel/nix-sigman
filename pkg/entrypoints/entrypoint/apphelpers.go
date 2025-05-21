@@ -10,6 +10,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"io"
 	"os"
@@ -91,6 +92,11 @@ func readPaths(ctx *CmdContext, paths []string, cb func(path *pathlib.Path) erro
 	if readStdin {
 		sc := bufio.NewScanner(ctx.stdIn)
 		for sc.Scan() {
+			if err := ctx.ctx.Err(); err != nil {
+				ctx.logger.Warn("Context closed during iteration", zap.String("msg", err.Error()))
+				return errors.Join(&ErrCommand{}, err)
+			}
+
 			line := sc.Text()
 			path := strings.TrimSpace(line)
 			if line == "" {
@@ -216,6 +222,20 @@ func backNinfo(l *zap.Logger, path *pathlib.Path) error {
 	return nil
 }
 
+// outputDir adapts the output directory path based on the backing file handler type
+// namely "." gets reinterpreted as bucket root in S3 mode.
+func NormalizeOutputDir(outputDir string) string {
+	switch CLI.FsBackend {
+	case "s3":
+		if outputDir == "." {
+			outputDir = "/"
+		}
+		return outputDir
+	default:
+		return outputDir
+	}
+}
+
 func writeNInfo(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) error {
 	newPath := path.Parent().Join(fmt.Sprintf("%s.new", path.Name()))
 	newBytes, err := ninfo.MarshalText()
@@ -244,4 +264,65 @@ func writeNInfo(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) error
 	}
 
 	return nil
+}
+
+type ConditionalResigners []func(ninfo *nixtypes.NarInfo) (bool, error)
+
+// buildSigningMap builds the data structures for doing conditional signing
+func buildSigningMap(publicKeys []nixtypes.NamedPublicKey,
+	privateKeys []nixtypes.NamedPrivateKey, signingMap map[string]string) (signers ConditionalResigners, setupErr error) {
+
+	privMap := lo.SliceToMap(privateKeys, func(item nixtypes.NamedPrivateKey) (string, nixtypes.NamedPrivateKey) {
+		return item.KeyName, item
+	})
+
+	pubMap := lo.SliceToMap(publicKeys, func(item nixtypes.NamedPublicKey) (string, nixtypes.NamedPublicKey) {
+		return item.KeyName, item
+	})
+
+	for k, v := range signingMap {
+		requiredPublicKeys := strings.Split(k, "&")
+		requiredPrivateKeys := strings.Split(v, ",")
+
+		requiredKeys := []nixtypes.NamedPublicKey{}
+		for _, key := range requiredPublicKeys {
+			if !lo.HasKey(pubMap, key) && key != "" {
+				setupErr = multierr.Append(setupErr, fmt.Errorf("requested public key not loaded: %s", key))
+			} else if key != "" {
+				requiredKeys = append(requiredKeys, pubMap[key])
+			}
+		}
+
+		signingKeys := []nixtypes.NamedPrivateKey{}
+		for _, key := range requiredPrivateKeys {
+			if !lo.HasKey(privMap, key) {
+				setupErr = multierr.Append(setupErr, fmt.Errorf("requested private key not loaded: %s", key))
+			} else {
+				signingKeys = append(signingKeys, privMap[key])
+			}
+		}
+
+		signers = append(signers, func(ninfo *nixtypes.NarInfo) (bool, error) {
+			// Abort as soon as something doesn't match
+			for _, key := range requiredKeys {
+				match, _ := ninfo.Verify(key)
+				if !match {
+					return false, nil
+				}
+			}
+			didNewSignature := false
+			// Good signatures - resign
+			for _, key := range signingKeys {
+				didSign, _, err := ninfo.Sign(key)
+				if err != nil {
+					return didSign, err
+				}
+				if didSign {
+					didNewSignature = true
+				}
+			}
+			return didNewSignature, nil
+		})
+	}
+	return
 }
