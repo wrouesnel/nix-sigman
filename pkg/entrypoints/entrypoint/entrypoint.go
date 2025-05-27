@@ -161,6 +161,25 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 			return 1
 		}
 	case "s3":
+		// At debug level, print some logging about what which AWS environment variables are set
+		// since this is *very* annoying to debug.
+		for _, envname := range os.Environ() {
+			if strings.HasPrefix(envname, "AWS_") {
+				fields := []zap.Field{zap.String("name", envname)}
+				envvalue := os.Getenv(envname)
+				if envname != "AWS_SECRET_ACCESS_KEY" {
+					fields = append(fields, zap.String("value", envvalue))
+				} else {
+					fields = append(fields, zap.String("value", "**OMITTED**"),
+						zap.Bool("ellided_value", true))
+				}
+				if envvalue != "" {
+					logger.Debug("AWS Environment variable is set", fields...)
+				} else {
+					logger.Debug("AWS Environment variable is NOT set", fields...)
+				}
+			}
+		}
 		// In truly frustrating style, endpoint overrides aren't supported till V2,
 		// which this library isn't based on. Hack them in here.
 		endpointUrl := new(string)
