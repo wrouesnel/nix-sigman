@@ -70,9 +70,15 @@ func Proxy(cmdCtx *CmdContext) error {
 	l.Info("Serving cache from", zap.String("output_dir", rootDir.String()))
 
 	handle := func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		// Handle both GET and HEAD.
 		defer r.Body.Close()
 		name := p.ByName("name")
 		requestName := rootDir.Join(name).Clean()
+		// Stat the request path so HEAD requests can work
+		st, err := requestName.Stat()
+		if err != nil {
+			st = nil
+		}
 
 		if name == NixCacheInfoName {
 			fh, err := requestName.Open()
@@ -80,20 +86,37 @@ func Proxy(cmdCtx *CmdContext) error {
 			if err != nil {
 				l.Warn("File Not Found", zap.String("error", err.Error()))
 				w.WriteHeader(http.StatusNotFound)
+				if r.Method == http.MethodHead {
+					// HEAD - no body response
+					return
+				}
 				w.Write([]byte(fmt.Sprintf("Not Found: %s", name)))
 				return
 			}
 
 			w.Header().Set(httpheaders.ContentType, "text/x-nix-cache-info")
+			if st != nil {
+				w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", st.Size()))
+				w.Header().Set(httpheaders.LastModified, st.ModTime().Format(http.TimeFormat))
+			}
 			w.WriteHeader(http.StatusOK)
+			if r.Method == http.MethodHead {
+				// HEAD - no body response
+				return
+			}
 			io.Copy(w, fh)
 		}
 
+		// narinfo files
 		if strings.HasSuffix(name, ".narinfo") {
 			ninfo, err := loadNarInfo(l, requestName)
 			if err != nil {
 				l.Warn("File Not Found", zap.String("error", err.Error()))
 				w.WriteHeader(http.StatusNotFound)
+				if r.Method == http.MethodHead {
+					// HEAD - no body response
+					return
+				}
 				w.Write([]byte(fmt.Sprintf("Not Found: %s", name)))
 				return
 			}
@@ -120,28 +143,52 @@ func Proxy(cmdCtx *CmdContext) error {
 			if err != nil {
 				l.Warn("Marshalling Error", zap.String("error", err.Error()))
 				w.WriteHeader(http.StatusInternalServerError)
+				if r.Method == http.MethodHead {
+					// HEAD - no body response
+					return
+				}
 				w.Write([]byte(fmt.Sprintf("Signing Error: %s", name)))
 			}
 
+			if st != nil {
+				w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(content)))
+				w.Header().Set(httpheaders.LastModified, st.ModTime().Format(http.TimeFormat))
+			}
+			w.Header().Set(httpheaders.ContentType, "text/x-nix-narinfo")
 			w.WriteHeader(http.StatusOK)
+			if r.Method == http.MethodHead {
+				// HEAD - no body response
+				return
+			}
 			w.Write(content)
 			return
 		}
-		fh, err := requestName.Open()
-		if err != nil {
-			l.Warn("File Not Found", zap.String("error", err.Error()))
-			w.WriteHeader(http.StatusNotFound)
-			w.Write([]byte(fmt.Sprintf("Not Found: %s", name)))
-			return
+		// Everything else
+		if st != nil {
+			w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", st.Size()))
+			w.Header().Set(httpheaders.LastModified, st.ModTime().Format(http.TimeFormat))
 		}
-		defer fh.Close()
-		w.WriteHeader(http.StatusOK)
-		io.Copy(w, fh)
+		if r.Method == http.MethodHead {
+			w.WriteHeader(http.StatusOK)
+			return
+		} else {
+			fh, err := requestName.Open()
+			if err != nil {
+				l.Warn("File Not Found", zap.String("error", err.Error()))
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(fmt.Sprintf("Not Found: %s", name)))
+				return
+			}
+			defer fh.Close()
+			w.WriteHeader(http.StatusOK)
+			io.Copy(w, fh)
+		}
 	}
 
 	l.Info("Starting HTTP server")
 	router := httprouter.New()
 	router.GET("/*name", handle)
+	router.HEAD("/*name", handle)
 
 	logger := httplog.LoggerWithConfig(
 		httplog.LoggerConfig{

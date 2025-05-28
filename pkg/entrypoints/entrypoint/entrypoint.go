@@ -163,10 +163,10 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 	case "s3":
 		// At debug level, print some logging about what which AWS environment variables are set
 		// since this is *very* annoying to debug.
-		for _, envname := range os.Environ() {
+		for _, env := range os.Environ() {
+			envname, envvalue, _ := strings.Cut(env, "=")
 			if strings.HasPrefix(envname, "AWS_") {
 				fields := []zap.Field{zap.String("name", envname)}
-				envvalue := os.Getenv(envname)
 				if envname != "AWS_SECRET_ACCESS_KEY" {
 					fields = append(fields, zap.String("value", envvalue))
 				} else {
