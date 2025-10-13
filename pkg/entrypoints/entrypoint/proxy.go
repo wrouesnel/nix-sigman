@@ -10,6 +10,8 @@ import (
 	"github.com/julienschmidt/httprouter"
 	"github.com/samber/lo"
 	"github.com/wrouesnel/multihttp"
+	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"go.withmatt.com/httpheaders"
 	"io"
@@ -19,10 +21,12 @@ import (
 
 //nolint:gochecknoglobals
 type ProxyConfig struct {
-	SigningMap     map[string]string `help:"Map of public key names to private key names to sign if present"`
-	SigningMapFile string            `help:"File to load the signing map from"`
-	Listen         []string          `help:"Listen addresses" default:"tcp://127.0.0.1:8080"`
-	Root           string            `arg:"" help:"Root path of the binary cache"`
+	SigningMap             map[string]string `help:"Map of public key names to private key names to sign if present"`
+	SigningMapFile         string            `help:"File to load the signing map from"`
+	AllowUnsignedResigning bool              `help:"Allow signing unsigned packages via the empty key specifier"`
+	UnsignedResigningKeys  []string          `help:"List of key names to be used for signing unsigned packages"`
+	Listen                 []string          `help:"Listen addresses" default:"tcp://127.0.0.1:8080"`
+	Root                   string            `arg:"" help:"Root path of the binary cache"`
 }
 
 // Proxy implements the dynamic resigning server
@@ -64,6 +68,24 @@ func Proxy(cmdCtx *CmdContext) error {
 	signers, err := buildSigningMap(publicKeys, privateKeys, signingMap)
 	if err != nil {
 		return errors.Join(&ErrCommand{}, err)
+	}
+
+	if CLI.Proxy.AllowUnsignedResigning {
+		var unsignedErr error
+		if len(CLI.Proxy.UnsignedResigningKeys) == 0 {
+			l.Warn("Unsigned Resigning Activated but no keys specified - unsigned packages will not be resigned")
+		} else {
+			// Validate the unsigned keys
+			for _, key := range CLI.Proxy.UnsignedResigningKeys {
+				if !lo.SomeBy(privateKeys, func(item nixtypes.NamedPrivateKey) bool {
+					return item.KeyName == key
+				}) {
+					unsignedErr = multierr.Append(unsignedErr, fmt.Errorf("requested private key not loaded: %s", key))
+				}
+			}
+
+			l.Warn("Unsigned Resigning Activated: all unsigned packages will have these keys applied", zap.Strings("unsigned_resigning_keys", CLI.Proxy.UnsignedResigningKeys))
+		}
 	}
 
 	rootDir := pathlib.NewPath(CLI.Proxy.Root, pathlib.PathWithAfero(cmdCtx.fs)).Clean()
