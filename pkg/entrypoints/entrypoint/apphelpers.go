@@ -6,15 +6,16 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"strings"
+
 	"github.com/chigopher/pathlib"
 	"github.com/samber/lo"
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
-	"io"
-	"os"
-	"strings"
 )
 
 // readNinfoFromPaths reads a list of paths and optionally reads an additional file from
@@ -247,8 +248,10 @@ func writeNInfo(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) error
 		return err
 	}
 	switch CLI.FsBackend {
-	case "s3":
+	case "s3", "nix-http-cache":
 		// For S3, just do an in-place PUT
+		// While the nix-cache-http FS can't (yet) write files, if it could, then
+		// it would work the same way (since it's pretty much identical to S3).
 		l.Debug("In-place PUT due to object-type storage")
 		if err := path.WriteFileMode(newBytes, os.FileMode(0644)); err != nil {
 			l.Warn("Failed to write narinfo file - signing aborted")

@@ -53,3 +53,15 @@ nix-sigman \
 
 This configuration will only apply the signature if *both* signatures are present
 and valid.
+
+## Using Nix HTTP Binary Cache Support
+
+`nix-http-cache` support has been experimentally added. Similar to S3 mode, in this mode
+`nix-sigman` talks directly to a Nix HTTP binary cache and can execute most operations
+against it. Specify via `--fs-backend=nix-http-cache` and pass the URL as an `--fs-opt`
+parameter such as `--fs-opt=https://cache.nixos.org`.
+
+For private repositories you can add a comma separated parameter `netrc-file` to provide
+credentials e.g. `--fs-opt=https://my.private.server,netrc-file=/etc/nix/netrc`.
+
+Note: fs-opt configuration in this circumstance is parsed internally as a single-line CSV file.

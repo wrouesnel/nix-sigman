@@ -2,7 +2,12 @@ package entrypoint
 
 import (
 	"context"
+	"encoding/csv"
 	"fmt"
+	"net/url"
+	"os/signal"
+	"syscall"
+
 	"github.com/alecthomas/kong"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -10,17 +15,17 @@ import (
 	"github.com/labstack/gommon/log"
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/kongutil"
+	nix_http_cachefs "github.com/wrouesnel/nix-http-cachefs"
 	"go.uber.org/zap/zapcore"
-	"os/signal"
-	"syscall"
+
+	"io"
+	"os"
+	"strings"
 
 	//gap "github.com/muesli/go-app-paths"
 	//"github.com/samber/lo"
 	"github.com/wrouesnel/nix-sigman/version"
 	"go.uber.org/zap"
-	"io"
-	"os"
-	"strings"
 )
 
 //nolint:gochecknoglobals
@@ -32,7 +37,7 @@ var CLI struct {
 		Format string `help:"logging format (${enum})" enum:"console,json" default:"console"`
 	} `embed:"" prefix:"log-"`
 
-	FsBackend string `help:"Filesystem backend for the binary cache" enum:"os,s3" default:"os"`
+	FsBackend string `help:"Filesystem backend for the binary cache" enum:"os,s3,nix-http-cache" default:"os"`
 	FsOpts    string `help:"Additional options for the filesystem handler" default:""`
 
 	PrivateKeyFiles []string `help:"Private Key Files" type:"existingfile"`
@@ -207,6 +212,43 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 			return 1
 		}
 		cmdCtx.fs = s3fs
+	case "nix-http-cache":
+		rdr := csv.NewReader(strings.NewReader(CLI.FsOpts))
+		rdr.LazyQuotes = true
+		rdr.TrimLeadingSpace = true
+		record, err := rdr.Read()
+		if err != nil {
+			logger.Error("Error parsing FS opts", zap.Error(err))
+			return 1
+		}
+		if len(record) == 0 {
+			logger.Error("Must specify at least an URL to an HTTP nix cache server")
+			return 1
+		}
+		cacheUrl, err := url.Parse(record[0])
+		if err != nil {
+			logger.Error("Error parsing supplied URL for nix-http-cache type", zap.Error(err))
+			return 1
+		}
+		opts := []nix_http_cachefs.Opt{}
+		for _, field := range record[1:] {
+			key, value, ok := strings.Cut(field, "=")
+			if !ok {
+				logger.Error("Unparseable field option found", zap.String("field", field))
+				return 1
+			}
+			switch key {
+			case "netrc-file":
+				opts = append(opts, nix_http_cachefs.NetrcFile(value))
+			default:
+				logger.Error("Unknown field key found", zap.String("field", field))
+				return 1
+			}
+		}
+		opts = append(opts, nix_http_cachefs.ErrorLogger(func(msg string) {
+			logger.Error(msg, zap.String("fs-backend", "nix-http-cache"))
+		}))
+		cmdCtx.fs = nix_http_cachefs.NewNixHttpCacheFs(cacheUrl, opts...)
 	default:
 		logger.Error("Invalid filesystem backend", zap.String("filesystem", CLI.FsBackend))
 		return 1
