@@ -5,16 +5,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/chigopher/pathlib"
-	"github.com/goccy/go-yaml"
-	"github.com/nix-community/go-nix/pkg/derivation"
-	"go.uber.org/zap"
-	"golang.org/x/sync/semaphore"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/chigopher/pathlib"
+	"github.com/goccy/go-yaml"
+	"github.com/nix-community/go-nix/pkg/derivation"
+	"github.com/wrouesnel/nix-sigman/pkg/nixconsts"
+	"go.uber.org/zap"
+	"golang.org/x/sync/semaphore"
 )
 
 //nolint:gochecknoglobals
@@ -27,6 +30,9 @@ type DerivationsConfig struct {
 		Format     string   `help:"format" enum:"json,json-compact,yaml" default:"json"`
 		Paths      []string `arg:"" help:"Derivation paths"`
 	} `cmd:"" help:"JSON format a derivation"`
+	Urls struct {
+		Paths []string `arg:"" help:"Derivation paths"`
+	} `cmd:"" help:"Recursively follow derivations and extract source input URLs"`
 }
 
 // DerivationRecurse recursively follows a derivation until it find the
@@ -40,7 +46,90 @@ func DerivationShow(cmdCtx *CmdContext) error {
 		}
 	}
 
-	nextPaths := CLI.Derivations.Show.Paths[:]
+	err := recurseDerivations(cmdCtx.logger, cmdCtx, CLI.Derivations.Show.Paths, CLI.Derivations.Show.Recurse,
+		CLI.Derivations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
+			l := cmdCtx.logger
+			outputFormat := CLI.Derivations.Show.Format
+			var output []byte
+			var err error
+			switch outputFormat {
+			case "json":
+				output, err = json.MarshalIndent(&drv, "", "  ")
+			case "json-compact":
+				output, err = json.Marshal(&drv)
+			case "yaml":
+				output, err = yaml.Marshal(&drv)
+			default:
+				l.Error("BUG: unknown format", zap.String("format", outputFormat))
+				return errors.New("unknown output format")
+			}
+
+			if err != nil {
+				return err
+			}
+
+			if outputRoot != nil {
+				extension, _ := strings.CutPrefix(outputFormat, "-")
+				filename := fmt.Sprintf("%s.%s", path.Name(), extension)
+
+				if err := os.WriteFile(filepath.Join(*outputRoot, filename), output, os.FileMode(0644)); err != nil {
+					l.Error("could not write file", zap.Error(err))
+					return err
+				}
+			} else {
+				cmdCtx.stdOut.Write(output)
+				cmdCtx.stdOut.Write([]byte("\n"))
+			}
+			return nil
+		})
+
+	return err
+}
+
+// DerivationUrls recursively follows the provided paths, resolves all URLs and writes them
+// stdout. This allows it to provide a BOM for a given nix build.
+func DerivationUrls(cmdCtx *CmdContext) error {
+	err := recurseDerivations(cmdCtx.logger, cmdCtx, CLI.Derivations.Show.Paths, CLI.Derivations.Show.Recurse,
+		CLI.Derivations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
+			// As far as we know, there's only two possible types of inputs: "url" and "urls", stored
+			// under the env key. urls is spaced separated.
+			inputUris := []*url.URL{}
+			if urlStr, found := drv.Env["url"]; found && urlStr != "" {
+				uri, err := url.Parse(urlStr)
+				if err != nil {
+					return err
+				}
+				inputUris = append(inputUris, uri)
+			}
+			if urlsStr, found := drv.Env["urls"]; found && urlsStr != "" {
+				for _, urlStr := range strings.Split(urlsStr, " ") {
+					if strings.TrimSpace(urlStr) == "" {
+						continue
+					}
+					uri, err := url.Parse(strings.TrimSpace(urlStr))
+					if err != nil {
+						return err
+					}
+					inputUris = append(inputUris, uri)
+				}
+			}
+
+			for _, uri := range inputUris {
+				subUrls := nixconsts.SubstituteUrl(uri)
+				for _, subUrl := range subUrls {
+					cmdCtx.stdOut.Write([]byte(subUrl.String()))
+					cmdCtx.stdOut.Write([]byte("\n"))
+				}
+			}
+			return nil
+		})
+	return err
+}
+
+// recurseDerivations follows derivations and calls a function against each one.
+func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recurse bool, drvRoot string,
+	cb func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error) error {
+	nextPaths := paths[:]
 	seenPaths := map[string]struct{}{}
 	seenPathsMtx := new(sync.Mutex)
 	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
@@ -50,9 +139,7 @@ func DerivationShow(cmdCtx *CmdContext) error {
 		currentPaths := nextPaths[:]
 		nextPaths = []string{}
 		errCh := make(chan error)
-		cancelableCtx := cmdCtx
 		ctx, cancelFn := context.WithCancel(cmdCtx.ctx)
-		cancelableCtx.ctx = ctx
 		go func() {
 			for err := range errCh {
 				if err != nil {
@@ -83,39 +170,17 @@ func DerivationShow(cmdCtx *CmdContext) error {
 					errCh <- err
 				}
 
-				outputFormat := CLI.Derivations.Show.Format
-				var output []byte
-				switch outputFormat {
-				case "json":
-					output, err = json.MarshalIndent(&drv, "", "  ")
-				case "json-compact":
-					output, err = json.Marshal(&drv)
-				case "yaml":
-					output, err = yaml.Marshal(&drv)
-				default:
-					l.Error("BUG: unknown format", zap.String("format", outputFormat))
-					errCh <- errors.New("unknown output format")
+				if err := cb(cmdCtx, path, drv); err != nil {
+					errCh <- err
 				}
+
 				if err != nil {
 					errCh <- err
 				}
 
-				if outputRoot != nil {
-					extension, _ := strings.CutPrefix(outputFormat, "-")
-					filename := fmt.Sprintf("%s.%s", path.Name(), extension)
-
-					if err := os.WriteFile(filepath.Join(*outputRoot, filename), output, os.FileMode(0644)); err != nil {
-						l.Error("could not write file", zap.Error(err))
-						errCh <- err
-					}
-				} else {
-					cmdCtx.stdOut.Write(output)
-					cmdCtx.stdOut.Write([]byte("\n"))
-				}
-
-				if CLI.Derivations.Show.Recurse {
+				if recurse {
 					for inputDrvPath, _ := range drv.InputDerivations {
-						drvPath := filepath.Join(CLI.Derivations.StoreRoot, inputDrvPath)
+						drvPath := filepath.Join(drvRoot, inputDrvPath)
 						seenPathsMtx.Lock()
 						if _, found := seenPaths[drvPath]; !found {
 							seenPaths[drvPath] = struct{}{}
@@ -144,6 +209,5 @@ func DerivationShow(cmdCtx *CmdContext) error {
 	}
 
 	cmdCtx.logger.Info("Processed derivation paths", zap.Int("seen_paths", len(seenPaths)))
-
-	return nil
+	return err
 }

@@ -3,10 +3,11 @@ package entrypoint
 import (
 	"context"
 	"fmt"
+	"io"
+
 	"github.com/alecthomas/kong"
 	"github.com/spf13/afero"
 	"go.uber.org/zap"
-	"io"
 )
 
 type ErrCommandNotImplemented struct {
@@ -61,6 +62,9 @@ func dispatchCommands(ctx *kong.Context, cmdCtx *CmdContext) error {
 
 	case "derivations show <paths>":
 		err = DerivationShow(cmdCtx)
+
+	case "derivations urls <paths>":
+		err = DerivationUrls(cmdCtx)
 
 	case "debug extract-tar":
 		err = DebugExtractTar(cmdCtx)
