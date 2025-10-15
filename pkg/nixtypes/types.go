@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
+
 	"zombiezen.com/go/nix/nixbase32"
 )
 
@@ -94,6 +96,15 @@ func (n *TypedNixHash) UnmarshalText(text []byte) error {
 	}
 	n.HashName = string(hashName)
 	if err := n.Hash.UnmarshalText(encodedHash); err != nil {
+		// Nix also appears to support hex-encoded hashes in the same fields we might
+		// see a TypedNixHash. So before failing, try a hex-decode.
+		var herr error
+		n.Hash, herr = hex.DecodeString(string(encodedHash))
+		if herr == nil {
+			// Was hex - leave it as hex.
+			return nil
+		}
+		// Otherwise just return the original error
 		return errors.Join(&ErrInvalidDataFormat{string(text)}, err)
 	}
 	return nil

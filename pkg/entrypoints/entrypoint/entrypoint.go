@@ -247,6 +247,8 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 		}
 		opts = append(opts, nix_http_cachefs.ErrorLogger(func(msg string) {
 			logger.Error(msg, zap.String("fs-backend", "nix-http-cache"))
+		}), nix_http_cachefs.DebugLogger(func(msg string) {
+			logger.Debug(msg, zap.String("fs-backend", "nix-http-cache"))
 		}))
 		cmdCtx.fs = nix_http_cachefs.NewNixHttpCacheFs(cacheUrl, opts...)
 	default:
