@@ -33,7 +33,8 @@ type DerivationsConfig struct {
 		Paths      []string `arg:"" help:"Derivation paths"`
 	} `cmd:"" help:"JSON format a derivation"`
 	Urls struct {
-		Paths []string `arg:"" help:"Derivation paths"`
+		Strict bool     `help:"If true then abort if any derivation fails to parse"`
+		Paths  []string `arg:"" help:"Derivation paths"`
 	} `cmd:"" help:"Recursively follow derivations and extract source input URLs"`
 }
 
@@ -48,7 +49,7 @@ func DerivationShow(cmdCtx *CmdContext) error {
 		}
 	}
 
-	err := recurseDerivations(cmdCtx.logger, cmdCtx, CLI.Derivations.Show.Paths, CLI.Derivations.Show.Recurse,
+	err := recurseDerivations(cmdCtx.logger, cmdCtx, CLI.Derivations.Show.Paths, CLI.Derivations.Show.Recurse, true,
 		CLI.Derivations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
 			l := cmdCtx.logger
 			outputFormat := CLI.Derivations.Show.Format
@@ -92,7 +93,7 @@ func DerivationShow(cmdCtx *CmdContext) error {
 // stdout. This allows it to provide a BOM for a given nix build.
 func DerivationUrls(cmdCtx *CmdContext) error {
 	inputUrls := mapset.NewSet[string]()
-	err := recurseDerivations(cmdCtx.logger, cmdCtx, CLI.Derivations.Urls.Paths, true,
+	err := recurseDerivations(cmdCtx.logger, cmdCtx, CLI.Derivations.Urls.Paths, true, CLI.Derivations.Urls.Strict,
 		CLI.Derivations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
 			// As far as we know, there's only two possible types of inputs: "url" and "urls", stored
 			// under the env key. urls is spaced separated.
@@ -137,14 +138,23 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 	return err
 }
 
+type ErrDerivation struct {
+	Path *pathlib.Path
+}
+
+func (e ErrDerivation) Error() string {
+	return fmt.Sprintf("error while processing derivation: %v", e.Path.String())
+}
+
 // recurseDerivations follows derivations and calls a function against each one.
-func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recurse bool, drvRoot string,
+func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recurse bool, strict bool, drvRoot string,
 	cb func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error) error {
-	var err error
 	nextPaths := paths[:]
 	seenPaths := map[string]struct{}{}
 	seenPathsMtx := new(sync.Mutex)
 	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
+
+	hadErrors := new(bool)
 
 	for len(nextPaths) > 0 {
 		wg := new(sync.WaitGroup)
@@ -155,14 +165,15 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 		go func() {
 			for err := range errCh {
 				if err != nil {
+					*hadErrors = true
 					cmdCtx.logger.Error(err.Error())
-					if ctx.Err() == nil {
+					if ctx.Err() == nil && strict {
 						cancelFn()
 					}
 				}
 			}
 		}()
-		err = readPaths(cmdCtx, currentPaths, func(path *pathlib.Path) error {
+		err := readPaths(cmdCtx, currentPaths, func(path *pathlib.Path) error {
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
 			}
@@ -175,7 +186,7 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 				fh, err := path.Open()
 				if err != nil {
 					l.Warn("Could not read file", zap.Error(err))
-					errCh <- err
+					errCh <- errors.Join(&ErrDerivation{path}, err)
 				}
 				drv, err := derivation.ReadDerivation(fh)
 				if err != nil {
@@ -183,11 +194,11 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 				}
 
 				if err := cb(cmdCtx, path, drv); err != nil {
-					errCh <- err
+					errCh <- errors.Join(&ErrDerivation{path}, err)
 				}
 
 				if err != nil {
-					errCh <- err
+					errCh <- errors.Join(&ErrDerivation{path}, err)
 				}
 
 				if recurse {
@@ -208,12 +219,8 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 		})
 		cmdCtx.logger.Info("Recursed Paths", zap.Int("next_paths", len(nextPaths)))
 		wg.Wait()
+		// Read paths should never fail
 		close(errCh)
-		if err != nil {
-			cmdCtx.logger.Error("Error while processing paths", zap.Error(err))
-			break
-		}
-		err = <-errCh
 		if err != nil {
 			cmdCtx.logger.Error("Error while processing paths", zap.Error(err))
 			break
@@ -221,5 +228,8 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 	}
 
 	cmdCtx.logger.Info("Processed derivation paths", zap.Int("seen_paths", len(seenPaths)))
-	return err
+	if *hadErrors {
+		return errors.New("encountered errors while processing paths")
+	}
+	return nil
 }
