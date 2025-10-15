@@ -1,6 +1,11 @@
 package nixconsts
 
-import "net/url"
+import (
+	"net/url"
+	"path"
+
+	"github.com/samber/lo"
+)
 
 func SubstituteUrl(u *url.URL) []*url.URL {
 	subUrls := []*url.URL{}
@@ -8,7 +13,17 @@ func SubstituteUrl(u *url.URL) []*url.URL {
 		subUrls = append(subUrls, u)
 		return subUrls
 	}
-	substitutes :=
+	substitutions, found := mirrorSubstitutions[u.Host]
+	if !found {
+		subUrls = append(subUrls, u)
+		return subUrls
+	}
+	for _, subUrl := range substitutions {
+		substitute := lo.Must(url.Parse(subUrl))
+		substitute.Path = path.Join(substitute.Path, u.Path)
+		subUrls = append(subUrls, substitute)
+	}
+	return subUrls
 }
 
 // Map of "well known" mirrors extracted from Nix source code. This list was

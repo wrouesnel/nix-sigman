@@ -9,10 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/chigopher/pathlib"
+	"github.com/deckarep/golang-set/v2"
 	"github.com/goccy/go-yaml"
 	"github.com/nix-community/go-nix/pkg/derivation"
 	"github.com/wrouesnel/nix-sigman/pkg/nixconsts"
@@ -89,7 +91,8 @@ func DerivationShow(cmdCtx *CmdContext) error {
 // DerivationUrls recursively follows the provided paths, resolves all URLs and writes them
 // stdout. This allows it to provide a BOM for a given nix build.
 func DerivationUrls(cmdCtx *CmdContext) error {
-	err := recurseDerivations(cmdCtx.logger, cmdCtx, CLI.Derivations.Show.Paths, CLI.Derivations.Show.Recurse,
+	inputUrls := mapset.NewSet[string]()
+	err := recurseDerivations(cmdCtx.logger, cmdCtx, CLI.Derivations.Urls.Paths, true,
 		CLI.Derivations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
 			// As far as we know, there's only two possible types of inputs: "url" and "urls", stored
 			// under the env key. urls is spaced separated.
@@ -117,18 +120,27 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 			for _, uri := range inputUris {
 				subUrls := nixconsts.SubstituteUrl(uri)
 				for _, subUrl := range subUrls {
-					cmdCtx.stdOut.Write([]byte(subUrl.String()))
-					cmdCtx.stdOut.Write([]byte("\n"))
+					inputUrls.Add(subUrl.String())
 				}
 			}
 			return nil
 		})
+
+	urlList := inputUrls.ToSlice()
+	sort.Strings(urlList)
+
+	for _, subUrl := range urlList {
+		cmdCtx.stdOut.Write([]byte(subUrl))
+		cmdCtx.stdOut.Write([]byte("\n"))
+	}
+
 	return err
 }
 
 // recurseDerivations follows derivations and calls a function against each one.
 func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recurse bool, drvRoot string,
 	cb func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error) error {
+	var err error
 	nextPaths := paths[:]
 	seenPaths := map[string]struct{}{}
 	seenPathsMtx := new(sync.Mutex)
@@ -150,7 +162,7 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 				}
 			}
 		}()
-		err := readPaths(cmdCtx, currentPaths, func(path *pathlib.Path) error {
+		err = readPaths(cmdCtx, currentPaths, func(path *pathlib.Path) error {
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
 			}
