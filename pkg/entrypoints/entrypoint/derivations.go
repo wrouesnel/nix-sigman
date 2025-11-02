@@ -17,6 +17,7 @@ import (
 	"github.com/deckarep/golang-set/v2"
 	"github.com/goccy/go-yaml"
 	"github.com/nix-community/go-nix/pkg/derivation"
+	"github.com/samber/lo"
 	"github.com/wrouesnel/nix-sigman/pkg/nixconsts"
 	"go.uber.org/zap"
 	"golang.org/x/sync/semaphore"
@@ -33,8 +34,9 @@ type DerivationsConfig struct {
 		Paths      []string `arg:"" help:"Derivation paths"`
 	} `cmd:"" help:"JSON format a derivation"`
 	Urls struct {
-		Strict bool     `help:"If true then abort if any derivation fails to parse"`
-		Paths  []string `arg:"" help:"Derivation paths"`
+		Strict             bool     `help:"If true then abort if any derivation fails to parse"`
+		CombineEquivalents bool     `help:"Combine substitutions which produce multiple paths onto a single space separated line"`
+		Paths              []string `arg:"" help:"Derivation paths"`
 	} `cmd:"" help:"Recursively follow derivations and extract source input URLs"`
 }
 
@@ -120,8 +122,16 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 
 			for _, uri := range inputUris {
 				subUrls := nixconsts.SubstituteUrl(uri)
-				for _, subUrl := range subUrls {
-					inputUrls.Add(subUrl.String())
+				if CLI.Derivations.Urls.CombineEquivalents {
+					stringUrls := lo.Map(subUrls, func(item *url.URL, _ int) string {
+						return item.String()
+					})
+					sort.Strings(stringUrls)
+					inputUrls.Add(strings.Join(stringUrls, " "))
+				} else {
+					for _, subUrl := range subUrls {
+						inputUrls.Add(subUrl.String())
+					}
 				}
 			}
 			return nil
