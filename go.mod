@@ -9,6 +9,7 @@ require (
 	github.com/alecthomas/kong v1.12.1
 	github.com/aws/aws-sdk-go v1.55.8
 	github.com/chigopher/pathlib v0.19.1
+	github.com/deckarep/golang-set/v2 v2.8.0
 	github.com/fatih/color v1.18.0
 	github.com/fclairamb/afero-s3 v0.3.1
 	github.com/goccy/go-yaml v1.18.0
@@ -27,7 +28,7 @@ require (
 	github.com/spf13/afero v1.15.0
 	github.com/wrouesnel/kongutil v0.0.0-20250331082405-8d531c9e23eb
 	github.com/wrouesnel/multihttp v1.0.0
-	github.com/wrouesnel/nix-http-cachefs v0.0.0-20251014094311-633e0f9395eb
+	github.com/wrouesnel/nix-http-cachefs v0.0.0-20251103001249-aed2d57f3883
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0
 	go.withmatt.com/httpheaders v1.0.0
@@ -52,7 +53,6 @@ require (
 	github.com/bodgit/windows v1.0.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
 	github.com/deckarep/golang-set v1.8.0 // indirect
-	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/frankban/quicktest v1.14.6 // indirect
@@ -65,7 +65,7 @@ require (
 	github.com/imdario/mergo v0.3.13 // indirect
 	github.com/jdxcode/netrc v1.0.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/klauspost/compress v1.18.1 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
@@ -98,7 +98,7 @@ require (
 	github.com/zyedidia/generic v1.2.1 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
-	golang.org/x/exp v0.0.0-20251009144603-d2f985daa21b // indirect
+	golang.org/x/exp v0.0.0-20251023183803-a4bb9ffd2546 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/telemetry v0.0.0-20251008203120-078029d740a8 // indirect
 	golang.org/x/text v0.30.0 // indirect

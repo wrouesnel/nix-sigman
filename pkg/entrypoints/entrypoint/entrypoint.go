@@ -225,14 +225,22 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 			logger.Error("Must specify at least an URL to an HTTP nix cache server")
 			return 1
 		}
-		cacheUrl, err := url.Parse(record[0])
-		if err != nil {
-			logger.Error("Error parsing supplied URL for nix-http-cache type", zap.Error(err))
-			return 1
-		}
+		cacheUrls := []*url.URL{}
+		urlsFinished := false
 		opts := []nix_http_cachefs.Opt{}
-		for _, field := range record[1:] {
+		for _, field := range record {
 			key, value, ok := strings.Cut(field, "=")
+			if !urlsFinished && !ok {
+				cacheUrl, err := url.Parse(record[0])
+				if err != nil {
+					logger.Error("Error parsing supplied URL for nix-http-cache type", zap.Error(err))
+					return 1
+				}
+				cacheUrls = append(cacheUrls, cacheUrl)
+				continue
+			} else if !urlsFinished {
+				urlsFinished = true
+			}
 			if !ok {
 				logger.Error("Unparseable field option found", zap.String("field", field))
 				return 1
@@ -250,7 +258,12 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 		}), nix_http_cachefs.DebugLogger(func(msg string) {
 			logger.Debug(msg, zap.String("fs-backend", "nix-http-cache"))
 		}))
-		cmdCtx.fs = nix_http_cachefs.NewNixHttpCacheFs(cacheUrl, opts...)
+		fs, err := nix_http_cachefs.NewNixHttpCacheFs(cacheUrls, opts...)
+		if err != nil {
+			logger.Error("Bad configuration for nix-cache-httpfs backend", zap.String("filesystem", CLI.FsBackend), zap.Error(err))
+			return 1
+		}
+		cmdCtx.fs = fs
 	default:
 		logger.Error("Invalid filesystem backend", zap.String("filesystem", CLI.FsBackend))
 		return 1
