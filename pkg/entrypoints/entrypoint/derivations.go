@@ -197,18 +197,22 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 				if err != nil {
 					l.Warn("Could not read file", zap.Error(err))
 					errCh <- errors.Join(&ErrDerivation{path}, err)
+					return
 				}
 				drv, err := derivation.ReadDerivation(fh)
 				if err != nil {
 					errCh <- err
+					return
 				}
 
 				if err := cb(cmdCtx, path, drv); err != nil {
 					errCh <- errors.Join(&ErrDerivation{path}, err)
+					return
 				}
 
 				if err != nil {
 					errCh <- errors.Join(&ErrDerivation{path}, err)
+					return
 				}
 
 				if recurse {

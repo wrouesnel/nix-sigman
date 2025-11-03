@@ -28,7 +28,7 @@ require (
 	github.com/spf13/afero v1.15.0
 	github.com/wrouesnel/kongutil v0.0.0-20250331082405-8d531c9e23eb
 	github.com/wrouesnel/multihttp v1.0.0
-	github.com/wrouesnel/nix-http-cachefs v0.0.0-20251103001249-aed2d57f3883
+	github.com/wrouesnel/nix-http-cachefs v0.0.0-20251103015458-7f578f93711c
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.0
 	go.withmatt.com/httpheaders v1.0.0

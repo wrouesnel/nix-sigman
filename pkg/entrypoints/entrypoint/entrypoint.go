@@ -231,7 +231,7 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 		for _, field := range record {
 			key, value, ok := strings.Cut(field, "=")
 			if !urlsFinished && !ok {
-				cacheUrl, err := url.Parse(record[0])
+				cacheUrl, err := url.Parse(field)
 				if err != nil {
 					logger.Error("Error parsing supplied URL for nix-http-cache type", zap.Error(err))
 					return 1
