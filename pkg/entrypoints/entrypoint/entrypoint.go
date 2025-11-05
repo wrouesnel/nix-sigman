@@ -78,13 +78,14 @@ var CLI struct {
 		} `cmd:"" help:"List all narinfo files in target"`
 	} `cmd:""`
 
-	Bundle      BundleConfig      `cmd:"" help:"Copy a NAR/NARInfo from the nix store"`
-	Sign        SignConfig        `cmd:"" help:"Sign a Nix archive"`
-	Verify      VerifyConfig      `cmd:"" help:"Verify a Nix archive signature"`
-	Validate    ValidateConfig    `cmd:"" help:"Validate a NarInfo file format"`
-	Derivations DerivationsConfig `cmd:"" help:"Manipulate derivations"`
-	Proxy       ProxyConfig       `cmd:"" help:"Serve a binary cache with resigning"`
-	NewKey      NewKeyConfig      `cmd:"" help:"Generate a new signing keypair for the current user"`
+	Bundle       BundleConfig       `cmd:"" help:"Copy a NAR/NARInfo from the nix store"`
+	Sign         SignConfig         `cmd:"" help:"Sign a Nix archive"`
+	Verify       VerifyConfig       `cmd:"" help:"Verify a Nix archive signature"`
+	Validate     ValidateConfig     `cmd:"" help:"Validate a NarInfo file format"`
+	Derivations  DerivationsConfig  `cmd:"" help:"Manipulate derivations"`
+	Realizations RealizationsConfig `cmd:"" help:"Manipulate binary packages"`
+	Proxy        ProxyConfig        `cmd:"" help:"Serve a binary cache with resigning"`
+	NewKey       NewKeyConfig       `cmd:"" help:"Generate a new signing keypair for the current user"`
 }
 
 // Entrypoint is the real application entrypoint. This structure allows test packages to E2E-style tests invoking commmands

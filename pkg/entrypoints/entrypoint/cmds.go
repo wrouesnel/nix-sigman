@@ -66,6 +66,9 @@ func dispatchCommands(ctx *kong.Context, cmdCtx *CmdContext) error {
 	case "derivations urls <paths>":
 		err = DerivationUrls(cmdCtx)
 
+	case "realizations list <paths>":
+		err = RealizationsList(cmdCtx)
+
 	case "debug extract-tar":
 		err = DebugExtractTar(cmdCtx)
 

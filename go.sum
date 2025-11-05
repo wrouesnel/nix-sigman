@@ -299,6 +299,8 @@ github.com/wrouesnel/nix-http-cachefs v0.0.0-20251103014715-e6f7a9b4e1f8 h1:TuyZ
 github.com/wrouesnel/nix-http-cachefs v0.0.0-20251103014715-e6f7a9b4e1f8/go.mod h1:e337KZI8DxdTdHRuGwNI710evd6XHIFMVmCgntRuX6w=
 github.com/wrouesnel/nix-http-cachefs v0.0.0-20251103015458-7f578f93711c h1:AijiUFtW7iZ9KBtAwCOtOIspoJk6B+1MnD6kAkVUB8k=
 github.com/wrouesnel/nix-http-cachefs v0.0.0-20251103015458-7f578f93711c/go.mod h1:e337KZI8DxdTdHRuGwNI710evd6XHIFMVmCgntRuX6w=
+github.com/wrouesnel/nix-http-cachefs v0.0.0-20251105024956-89fc08c73e8e h1:cnCJDhmAVE77CI6uYquKCLJ5M677O/XpK5DCeblspdE=
+github.com/wrouesnel/nix-http-cachefs v0.0.0-20251105024956-89fc08c73e8e/go.mod h1:e337KZI8DxdTdHRuGwNI710evd6XHIFMVmCgntRuX6w=
 github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 h1:nIPpBwaJSVYIxUFsDv3M8ofmx9yWTog9BfvIu0q41lo=
 github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8/go.mod h1:HUYIGzjTL3rfEspMxjDjgmT5uz5wzYJKVo23qUhYTos=
 github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 h1:bAn7/zixMGCfxrRTfdpNzjtPYqr8smhKouy9mxVdGPU=
