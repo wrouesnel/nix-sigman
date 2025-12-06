@@ -37,6 +37,7 @@ type DerivationsConfig struct {
 		Strict bool `help:"If true then abort if any derivation fails to parse"`
 		//CombineEquivalents   bool     `help:"Combine substitutions which produce multiple paths onto a single space separated line"`
 		EmitTarballCacheUrls bool     `help:"If a derivation includes a hash then emit a tarball hash URL as well"`
+		TarballCacheBaseUrl  string   `default:"https://tarball.nixos.org/" help:"Tarball cache URL to generate"`
 		Paths                []string `arg:"" help:"Derivation paths"`
 	} `cmd:"" help:"Recursively follow derivations and extract source input URLs"`
 }
@@ -134,7 +135,7 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 			if CLI.Derivations.Urls.EmitTarballCacheUrls {
 				if output, found := drv.Outputs["out"]; found {
 					if output.HashAlgorithm != "" && output.Hash != "" {
-						derivUrls = append(derivUrls, fmt.Sprintf("https://tarballs.nixos.org/%v/%v", output.HashAlgorithm, output.Hash))
+						derivUrls = append(derivUrls, fmt.Sprintf("%v/%v/%v", CLI.Derivations.Urls.TarballCacheBaseUrl, output.HashAlgorithm, output.Hash))
 					}
 				}
 			}
