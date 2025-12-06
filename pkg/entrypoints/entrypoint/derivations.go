@@ -34,9 +34,10 @@ type DerivationsConfig struct {
 		Paths      []string `arg:"" help:"Derivation paths"`
 	} `cmd:"" help:"JSON format a derivation"`
 	Urls struct {
-		Strict             bool     `help:"If true then abort if any derivation fails to parse"`
-		CombineEquivalents bool     `help:"Combine substitutions which produce multiple paths onto a single space separated line"`
-		Paths              []string `arg:"" help:"Derivation paths"`
+		Strict bool `help:"If true then abort if any derivation fails to parse"`
+		//CombineEquivalents   bool     `help:"Combine substitutions which produce multiple paths onto a single space separated line"`
+		EmitTarballCacheUrls bool     `help:"If a derivation includes a hash then emit a tarball hash URL as well"`
+		Paths                []string `arg:"" help:"Derivation paths"`
 	} `cmd:"" help:"Recursively follow derivations and extract source input URLs"`
 }
 
@@ -120,20 +121,26 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 				}
 			}
 
+			derivUrls := []string{}
 			for _, uri := range inputUris {
 				subUrls := nixconsts.SubstituteUrl(uri)
-				if CLI.Derivations.Urls.CombineEquivalents {
-					stringUrls := lo.Map(subUrls, func(item *url.URL, _ int) string {
-						return item.String()
-					})
-					sort.Strings(stringUrls)
-					inputUrls.Add(strings.Join(stringUrls, " "))
-				} else {
-					for _, subUrl := range subUrls {
-						inputUrls.Add(subUrl.String())
+				stringUrls := lo.Map(subUrls, func(item *url.URL, _ int) string {
+					return item.String()
+				})
+				derivUrls = append(derivUrls, stringUrls...)
+
+			}
+
+			if CLI.Derivations.Urls.EmitTarballCacheUrls {
+				if output, found := drv.Outputs["out"]; found {
+					if output.HashAlgorithm != "" && output.Hash != "" {
+						derivUrls = append(derivUrls, fmt.Sprintf("https://tarballs.nixos.org/%v/%v", output.HashAlgorithm, output.Hash))
 					}
 				}
 			}
+
+			inputUrls.Add(strings.Join(derivUrls, " "))
+
 			return nil
 		})
 
