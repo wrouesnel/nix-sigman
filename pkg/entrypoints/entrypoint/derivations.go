@@ -17,7 +17,6 @@ import (
 	"github.com/deckarep/golang-set/v2"
 	"github.com/goccy/go-yaml"
 	"github.com/nix-community/go-nix/pkg/derivation"
-	"github.com/samber/lo"
 	"github.com/wrouesnel/nix-sigman/pkg/nixconsts"
 	"go.uber.org/zap"
 	"golang.org/x/sync/semaphore"
@@ -38,6 +37,7 @@ type DerivationsConfig struct {
 		//CombineEquivalents   bool     `help:"Combine substitutions which produce multiple paths onto a single space separated line"`
 		EmitTarballCacheUrls bool     `help:"If a derivation includes a hash then emit a tarball hash URL as well"`
 		TarballCacheBaseUrl  string   `default:"https://tarball.nixos.org/" help:"Tarball cache URL to generate"`
+		GuessURLTypes        bool     `help:"Modify URLs with application hints e.g. git+https - this is heuristic"`
 		Paths                []string `arg:"" help:"Derivation paths"`
 	} `cmd:"" help:"Recursively follow derivations and extract source input URLs"`
 }
@@ -125,16 +125,27 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 			derivUrls := []string{}
 			for _, uri := range inputUris {
 				subUrls := nixconsts.SubstituteUrl(uri)
-				stringUrls := lo.Map(subUrls, func(item *url.URL, _ int) string {
-					return item.String()
-				})
-				derivUrls = append(derivUrls, stringUrls...)
 
+				for _, subUri := range subUrls {
+					if CLI.Derivations.Urls.GuessURLTypes {
+						if fetcher, found := drv.Env["fetcher"]; found {
+							if strings.HasSuffix(fetcher, "git") {
+								// Looks like a git URL
+								subUri.Scheme = fmt.Sprintf("%s+%s", "git", subUri.Scheme)
+							}
+						}
+					}
+
+					stringUrl := subUri.String()
+
+					derivUrls = append(derivUrls, stringUrl)
+				}
 			}
 
 			if CLI.Derivations.Urls.EmitTarballCacheUrls {
 				if output, found := drv.Outputs["out"]; found {
-					if output.HashAlgorithm != "" && output.Hash != "" {
+					// We need to ignore r: since it's for recursive derivations we can't calculate.
+					if output.HashAlgorithm != "" && output.Hash != "" && !strings.HasPrefix(output.Hash, "r:") {
 						derivUrls = append(derivUrls, fmt.Sprintf("%v/%v/%v", CLI.Derivations.Urls.TarballCacheBaseUrl, output.HashAlgorithm, output.Hash))
 					}
 				}
