@@ -36,7 +36,7 @@ type DerivationsConfig struct {
 		Strict bool `help:"If true then abort if any derivation fails to parse"`
 		//CombineEquivalents   bool     `help:"Combine substitutions which produce multiple paths onto a single space separated line"`
 		EmitTarballCacheUrls bool     `help:"If a derivation includes a hash then emit a tarball hash URL as well"`
-		TarballCacheBaseUrl  string   `default:"https://tarball.nixos.org/" help:"Tarball cache URL to generate"`
+		TarballCacheBaseUrl  string   `default:"https://tarball.nixos.org" help:"Tarball cache URL to generate"`
 		GuessUrlTypes        bool     `help:"Modify URLs with application hints e.g. git+https - this is heuristic"`
 		Paths                []string `arg:"" help:"Derivation paths"`
 	} `cmd:"" help:"Recursively follow derivations and extract source input URLs"`
