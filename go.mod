@@ -1,6 +1,6 @@
 module github.com/wrouesnel/nix-sigman
 
-go 1.24.4
+go 1.25.5
 
 require (
 	github.com/1lann/countwriter v0.0.0-20160329163811-702ae82f0549

@@ -38,6 +38,7 @@ type DerivationsConfig struct {
 		EmitTarballCacheUrls bool     `help:"If a derivation includes a hash then emit a tarball hash URL as well"`
 		TarballCacheBaseUrl  string   `default:"https://tarballs.nixos.org" help:"Tarball cache URL to generate"`
 		GuessUrlTypes        bool     `help:"Modify URLs with application hints e.g. git+https - this is heuristic"`
+		IncludeNixPaths      bool     `help:"Include Nix paths at the end of the list"`
 		Paths                []string `arg:"" help:"Derivation paths"`
 	} `cmd:"" help:"Recursively follow derivations and extract source input URLs"`
 }
@@ -142,12 +143,22 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 				}
 			}
 
+			// Add a tarball cache URL to the end of the list
 			if CLI.Derivations.Urls.EmitTarballCacheUrls {
 				if output, found := drv.Outputs["out"]; found {
 					// We need to ignore r: since it's for recursive derivations we can't calculate.
 					if output.HashAlgorithm != "" && output.Hash != "" && !strings.HasPrefix(output.Hash, "r:") {
 						derivUrls = append(derivUrls, fmt.Sprintf("%v/%v/%v", CLI.Derivations.Urls.TarballCacheBaseUrl, output.HashAlgorithm, output.Hash))
 					}
+				}
+			}
+
+			// Add a direct substitution URL from a nix-cache.
+			if CLI.Derivations.Urls.IncludeNixPaths {
+				if output, found := drv.Outputs["out"]; found {
+					// Unfortunately we can't just give a single URL for anything Nix-based easily.
+					// Split the difference and invent a URL scheme so we can just pass the narinfo hash.
+					derivUrls = append(derivUrls, output.Path)
 				}
 			}
 
