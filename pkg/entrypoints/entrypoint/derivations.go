@@ -144,7 +144,7 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 			}
 
 			// Add a tarball cache URL to the end of the list
-			if CLI.Derivations.Urls.EmitTarballCacheUrls {
+			if CLI.Derivations.Urls.EmitTarballCacheUrls && len(inputUris) > 0 {
 				if output, found := drv.Outputs["out"]; found {
 					// We need to ignore r: since it's for recursive derivations we can't calculate.
 					if output.HashAlgorithm != "" && output.Hash != "" && !strings.HasPrefix(output.Hash, "r:") {
@@ -153,8 +153,9 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 				}
 			}
 
-			// Add a direct substitution URL from a nix-cache.
-			if CLI.Derivations.Urls.IncludeNixPaths {
+			// Add a direct substitution URL from a nix-cache. Only add this if we got
+			// some input URIs (i.e. this is a source derivation)
+			if CLI.Derivations.Urls.IncludeNixPaths && len(inputUris) > 0 {
 				if output, found := drv.Outputs["out"]; found {
 					// Unfortunately we can't just give a single URL for anything Nix-based easily.
 					// Split the difference and invent a URL scheme so we can just pass the narinfo hash.
