@@ -28,12 +28,12 @@ require (
 	github.com/spf13/afero v1.15.0
 	github.com/wrouesnel/kongutil v0.0.0-20250331082405-8d531c9e23eb
 	github.com/wrouesnel/multihttp v1.0.0
-	github.com/wrouesnel/nix-http-cachefs v0.0.0-20251206072704-a768d93a4c1f
+	github.com/wrouesnel/nix-http-cachefs v0.0.0-20251217024558-f63034e83d08
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.1
 	go.withmatt.com/httpheaders v1.0.0
-	golang.org/x/mod v0.30.0
-	golang.org/x/sync v0.18.0
+	golang.org/x/mod v0.31.0
+	golang.org/x/sync v0.19.0
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.40.1
@@ -78,7 +78,7 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/nwaples/rardecode v1.1.3 // indirect
-	github.com/nwaples/rardecode/v2 v2.2.1 // indirect
+	github.com/nwaples/rardecode/v2 v2.2.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pierrec/lz4 v2.6.1+incompatible // indirect
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
@@ -101,7 +101,7 @@ require (
 	golang.org/x/exp v0.0.0-20251125195548-87e1e737ad39 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/telemetry v0.0.0-20251111182119-bc8e575c7b54 // indirect
-	golang.org/x/text v0.31.0 // indirect
+	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/tools v0.39.0 // indirect
 	golang.org/x/tools/cmd/cover v0.1.0-deprecated // indirect
 	k8s.io/apimachinery v0.34.1 // indirect

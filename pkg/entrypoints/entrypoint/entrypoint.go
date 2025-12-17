@@ -11,6 +11,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/chigopher/pathlib"
 	s3 "github.com/fclairamb/afero-s3"
 	"github.com/labstack/gommon/log"
 	"github.com/spf13/afero"
@@ -249,6 +250,9 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 			switch key {
 			case "netrc-file":
 				opts = append(opts, nix_http_cachefs.NetrcFile(value))
+			case "persistent-cache":
+				localCachePath := pathlib.NewPath(value, pathlib.PathWithAfero(afero.NewOsFs()))
+				opts = append(opts, nix_http_cachefs.PersistentCache(localCachePath))
 			default:
 				logger.Error("Unknown field key found", zap.String("field", field))
 				return 1
