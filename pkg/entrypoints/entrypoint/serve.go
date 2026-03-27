@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -25,7 +26,7 @@ import (
 type ServeConfig struct {
 	Listen    []string `help:"Listen addresses" default:"tcp://127.0.0.1:8081"`
 	Root      string   `help:"Root to search for a nix store" default:"/"`
-	NixDB     *string  `help:"Override the database location" default:""`
+	NixDB     *string  `help:"Override the database location"`
 	StoreRoot *string  `help:"Override the store root (but not the store path)"`
 	StorePath string   `help:"Nix store path to advertise (usually should not be changed)" default:"/nix/store"`
 }
@@ -36,7 +37,12 @@ type ServeConfig struct {
 func Serve(cmdCtx *CmdContext) error {
 	l := cmdCtx.logger
 
-	root := pathlib.NewPath(CLI.Serve.Root, pathlib.PathWithAfero(afero.NewOsFs()))
+	initialRoot := CLI.Serve.Root
+	if initialRoot == "/" {
+		initialRoot = ""
+	}
+
+	root := pathlib.NewPath(initialRoot, pathlib.PathWithAfero(afero.NewOsFs()))
 	nixDb, nixStoreRoot := nixstore.DefaultNixStore(root)
 	storePath := CLI.Serve.StorePath
 
@@ -84,10 +90,13 @@ func Serve(cmdCtx *CmdContext) error {
 	)
 
 	webCtx, webCancel := context.WithCancel(cmdCtx.ctx)
-	listeners, errCh, listenerErr := multihttp.Listen(CLI.Proxy.Listen, logger(router))
+	listeners, errCh, listenerErr := multihttp.Listen(CLI.Serve.Listen, logger(router))
 	if listenerErr != nil {
 		l.Error("Error setting up listeners", zap.Error(listenerErr))
 		webCancel()
+	}
+	for _, listener := range listeners {
+		l.Info("Listening", zap.String("addr", listener.Addr().String()))
 	}
 
 	// Log errors from the listener
@@ -122,13 +131,14 @@ Priority: 40
 // NixHandler implements the Nix HTTP cache handler. nixStoreRoot is used to set a LastModifiedTime for files in the store
 // corresponding to if the directory has been modified.
 func NixHandler(store nixstore.NixStore, storePath string, startTime time.Time) httprouter.Handle {
+	nixCacheInfoPath := fmt.Sprintf("/%s", NixCacheInfoName)
 	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		// Handle both GET and HEAD.
 		defer r.Body.Close()
 		name := p.ByName("name")
 
 		// Handle the cache info response
-		if name == NixCacheInfoName {
+		if name == nixCacheInfoPath {
 			cacheInfoResp := []byte(fmt.Sprintf(NixCacheInfoTemplate, storePath))
 
 			w.Header().Set(httpheaders.ContentType, "text/x-nix-cache-info")
@@ -166,7 +176,15 @@ func NixHandler(store nixstore.NixStore, storePath string, startTime time.Time) 
 		}
 
 		// Treat as a nar file request
-		rdr, ninfo, registrationTime, err := store.GetNar(name)
+		hashName, _, _ := strings.Cut(path.Base(name), ".")
+		pathInStore, err := store.GetStorePathByFileHash(hashName)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf("error: %s", name)))
+			return
+		}
+
+		rdr, ninfo, registrationTime, err := store.GetNar(pathInStore)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(fmt.Sprintf("error: %s", name)))

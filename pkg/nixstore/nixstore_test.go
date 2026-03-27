@@ -44,7 +44,7 @@ func (n *NixStoreSuite) TestNarServingWorks(c *C) {
 	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, nixstore.DefaultStorePath)
 	c.Assert(err, IsNil)
 
-	ninfo, err := store.GetNarInfo(wellKnownPath)
+	ninfo, _, err := store.GetNarInfo(wellKnownPath)
 	c.Assert(err, IsNil)
 	ninfoText, err := ninfo.MarshalText()
 	c.Assert(err, IsNil)
@@ -56,7 +56,7 @@ func (n *NixStoreSuite) TestNarServingWorks(c *C) {
 	c.Assert(string(ninfoText), Equals, string(canonicalNarInfo))
 
 	// Serve the NAR file from the store
-	rdr, err := store.GetNar(wellKnownPath)
+	rdr, _, _, err := store.GetNar(wellKnownPath)
 	c.Assert(err, IsNil)
 
 	// Hash it...

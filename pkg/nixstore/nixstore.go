@@ -1,6 +1,8 @@
 package nixstore
 
 import (
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -20,6 +22,7 @@ import (
 type NixStore interface {
 	GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error)
 	GetNar(path string) (io.ReadCloser, *nixtypes.NarInfo, time.Time, error)
+	GetStorePathByFileHash(fileHash string) (string, error)
 }
 
 const sqlLookupPath = `
@@ -29,6 +32,15 @@ SELECT * FROM ValidPaths
 
 const sqlLookupPathRefs = `
 select path from Refs join ValidPaths on reference = id where referrer = ?;
+`
+
+const sqlLookupPathByFileHash = `
+SELECT * FROM ValidPaths
+         WHERE hash = ?
+`
+
+const sqlGetHashingAlg = `
+SELECT * FROM ValidPaths ORDER BY ROWID ASC LIMIT 1
 `
 
 const DefaultNixDBPath = "nix/var/nix/db/db.sqlite"
@@ -51,11 +63,22 @@ func NewNixStore(nixDb *pathlib.Path, storeRoot *pathlib.Path, storePath string)
 		return nil, err
 	}
 
+	nixPaths := make([]ValidPaths, 0)
+	if err := db.Select(&nixPaths, sqlGetHashingAlg); err != nil {
+		return nil, err
+	}
+
+	hashingAlg := "sha256"
+	if len(nixPaths) > 0 {
+		hashingAlg, _, _ = strings.Cut(nixPaths[0].Hash, ":")
+	}
+
 	return &nixStore{
-		nixDb:     nixDb,
-		storeRoot: storeRoot,
-		storePath: storePath,
-		db:        db,
+		nixDb:      nixDb,
+		storeRoot:  storeRoot,
+		storePath:  storePath,
+		db:         db,
+		hashingAlg: hashingAlg,
 	}, nil
 }
 
@@ -67,11 +90,14 @@ type nixStore struct {
 	// storePath is prefix to be expected from store paths (removed to look them up in storeRoot)
 	storePath string
 	db        *sqlx.DB
+	// hashingAlg is the detected file hashing algorithm from the database
+	hashingAlg string
 }
 
 func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) {
 	// Extract the hashname
-	hashName, _, _ := strings.Cut(filepath.Base(path), "-")
+	trimmed, _, _ := strings.Cut(filepath.Base(path), ".")
+	hashName, _, _ := strings.Cut(trimmed, "-")
 
 	// TODO: does this need sanitizing? You can't really do anything by messing with
 	// the lookup given the construction.
@@ -124,11 +150,35 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) 
 		NarHash:     fileHash, // No compression means these are the same
 		NarSize:     nixPath.NarSize,
 		References:  refs,
-		Deriver:     filepath.Base(nixPath.Deriver.V),
+		Deriver:     lo.Ternary(nixPath.Deriver.Valid, filepath.Base(nixPath.Deriver.V), ""),
 		Sig:         sigs,
 		CA:          nixPath.Ca.V,
 		Extra:       map[string]string{},
 	}, registrationTime, nil
+}
+
+// GetStorePathByFileHash returns a store path by its filehash. This function is only likely
+// to work with NAR info files served by the same server, since if the hash type changes
+// then the database lookup won't find anything.
+func (n *nixStore) GetStorePathByFileHash(fileHash string) (string, error) {
+	// As far as we know, the store paths in the database are always hex-encoded SHA256
+	typedHash := nixtypes.TypedNixHash{}
+	if err := typedHash.UnmarshalText([]byte(fmt.Sprintf("%s:%s", n.hashingAlg,fileHash))); err != nil {
+		return "", err
+	}
+
+	hashLookup := fmt.Sprintf("%s:%s", n.hashingAlg, hex.EncodeToString(typedHash.Hash))
+	// Execute a very loosey-goosey search so we can work with other paths
+	nixPaths := make([]ValidPaths, 0)
+	if err := n.db.Select(&nixPaths, sqlLookupPathByFileHash, hashLookup); err != nil {
+		return "", err
+	}
+
+	if len(nixPaths) == 0 {
+		return "", errors.New("not found")
+	}
+
+	return nixPaths[0].Path, nil
 }
 
 func (n *nixStore) GetNar(path string) (io.ReadCloser, *nixtypes.NarInfo, time.Time, error) {
