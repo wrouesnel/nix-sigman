@@ -5,10 +5,11 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
-	"github.com/samber/lo"
 	"path"
 	"strconv"
 	"strings"
+
+	"github.com/samber/lo"
 )
 
 type ErrSignature struct {
@@ -31,11 +32,18 @@ type NarInfo struct {
 	References  []string
 	Deriver     string
 	Sig         []NixSignature
+	CA			string
 
 	// Extra is any extra fields we find
 	Extra map[string]string
 	// order stores the order the fields were read in
 	order []string
+}
+
+// NixHash returns the leading nix hash part of the narinfo.
+func (n *NarInfo) NixHash() string {
+	nixHash, _, _ := strings.Cut(path.Base(n.StorePath), "-")
+	return nixHash
 }
 
 // Fingerprint returns the fingerpint which is signed/verified by a signature
@@ -218,6 +226,11 @@ func (n *NarInfo) UnmarshalText(text []byte) error {
 				}
 				n.Sig = append(n.Sig, signature)
 			}
+		case "CA":
+			if value == "" {
+				continue
+			}
+			n.CA = value
 		default:
 			n.Extra[field] = value
 		}
@@ -273,6 +286,10 @@ func (n *NarInfo) MarshalText() (text []byte, err error) {
 		return item.String()
 	})
 	outputLines.Add("Sig", sigs...)
+
+	if n.CA != "" {
+		outputLines.Add("CA", n.CA)
+	}
 
 	for key, value := range n.Extra {
 		outputLines.Add(key, value)
