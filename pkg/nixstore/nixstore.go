@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/chigopher/pathlib"
 	"github.com/jmoiron/sqlx"
@@ -17,8 +18,8 @@ import (
 )
 
 type NixStore interface {
-	GetNarInfo(path string) (nixtypes.NarInfo, error)
-	GetNar(path string) (io.ReadCloser, error)
+	GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error)
+	GetNar(path string) (io.ReadCloser, *nixtypes.NarInfo, time.Time, error)
 }
 
 const sqlLookupPath = `
@@ -30,11 +31,18 @@ const sqlLookupPathRefs = `
 select path from Refs join ValidPaths on reference = id where referrer = ?;
 `
 
-func NewNixStore(root *pathlib.Path) (NixStore, error) {
-	// Try and open the database
-	dbPath := root.Join("var/nix/db/db.sqlite")
+const DefaultNixDBPath = "nix/var/nix/db/db.sqlite"
+const DefaultNixStoreRoot = "nix/store"
+const DefaultStorePath = "/nix/store"
 
-	db, err := sqlx.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", dbPath.String()))
+func DefaultNixStore(root *pathlib.Path) (db *pathlib.Path, storeRoot *pathlib.Path) {
+	db = root.Join(DefaultNixDBPath)
+	storeRoot = root.Join(DefaultNixStoreRoot)
+	return
+}
+
+func NewNixStore(nixDb *pathlib.Path, storeRoot *pathlib.Path, storePath string) (NixStore, error) {
+	db, err := sqlx.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", nixDb.String()))
 	if err != nil {
 		return nil, err
 	}
@@ -43,22 +51,25 @@ func NewNixStore(root *pathlib.Path) (NixStore, error) {
 		return nil, err
 	}
 
-	// It's presumed the root is a path to the root of /nix
-	// By contention, nix stores pretty much all paths are /nix/store/<something>
-	//
-
 	return &nixStore{
-		root: root,
-		db:   db,
+		nixDb:     nixDb,
+		storeRoot: storeRoot,
+		storePath: storePath,
+		db:        db,
 	}, nil
 }
 
 type nixStore struct {
-	root *pathlib.Path
-	db   *sqlx.DB
+	// nixDb is the path to the nix database
+	nixDb *pathlib.Path
+	// storeRoot is the path to the real location of the nix store
+	storeRoot *pathlib.Path
+	// storePath is prefix to be expected from store paths (removed to look them up in storeRoot)
+	storePath string
+	db        *sqlx.DB
 }
 
-func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, error) {
+func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) {
 	// Extract the hashname
 	hashName, _, _ := strings.Cut(filepath.Base(path), "-")
 
@@ -69,12 +80,14 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, error) {
 	nixPath := new(ValidPaths)
 	lookupArg := fmt.Sprintf("%%/%s-%%", hashName)
 	if err := n.db.Get(nixPath, sqlLookupPath, lookupArg); err != nil {
-		return nixtypes.NarInfo{}, err
+		return nixtypes.NarInfo{}, time.Time{}, err
 	}
+
+	registrationTime := time.Unix(int64(nixPath.RegistrationTime), 0)
 
 	fileHash := nixtypes.TypedNixHash{}
 	if err := fileHash.UnmarshalText([]byte(nixPath.Hash)); err != nil {
-		return nixtypes.NarInfo{}, err
+		return nixtypes.NarInfo{}, time.Time{}, err
 	}
 
 	sigs := []nixtypes.NixSignature{}
@@ -84,7 +97,7 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, error) {
 		}
 		sig := nixtypes.NixSignature{}
 		if err := sig.UnmarshalText([]byte(sigStr)); err != nil {
-			return nixtypes.NarInfo{}, err
+			return nixtypes.NarInfo{}, time.Time{}, err
 		}
 		sigs = append(sigs, sig)
 	}
@@ -92,7 +105,7 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, error) {
 	// Query the refs
 	refs := []string{}
 	if err := n.db.Select(&refs, sqlLookupPathRefs, nixPath.Id); err != nil {
-		return nixtypes.NarInfo{}, err
+		return nixtypes.NarInfo{}, time.Time{}, err
 	}
 
 	refs = lo.Map(refs, func(item string, index int) string {
@@ -115,32 +128,29 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, error) {
 		Sig:         sigs,
 		CA:          nixPath.Ca.V,
 		Extra:       map[string]string{},
-	}, nil
+	}, registrationTime, nil
 }
 
-func (n *nixStore) GetNar(path string) (io.ReadCloser, error) {
-	// Extract the hashname
-	hashName, _, _ := strings.Cut(filepath.Base(path), "-")
-
-	// TODO: does this need sanitizing? You can't really do anything by messing with
-	// the lookup given the construction.
-
-	// Execute a very loosey-goosey search so we can work with other paths
-	nixPath := new(ValidPaths)
-	lookupArg := fmt.Sprintf("%%/%s-%%", hashName)
-	if err := n.db.Get(nixPath, sqlLookupPath, lookupArg); err != nil {
-		return nil, err
+func (n *nixStore) GetNar(path string) (io.ReadCloser, *nixtypes.NarInfo, time.Time, error) {
+	ninfo, registrationTime, err := n.GetNarInfo(path)
+	if err != nil {
+		return nil, nil, registrationTime, err
 	}
 
 	// Our expectation is n.root points to `/nix` or wherever `/nix` has been mounted.
 	// So our intepretation of nix paths should reflect this - namely we go one level up,
 	// and then use that as the base for what path we want to dump from the DB.
-	// This _does not work_ with alternate store directories.
+	// What path we actually use is determined by the value of n.storePath, which should
+	// normally be /nix/store.
+
+	basePath, _ := strings.CutPrefix(ninfo.StorePath, n.storePath)
+	realPath := n.storeRoot.Join(basePath)
+
 	rdr, wr := io.Pipe()
 	go func() {
-		err := nar.DumpPath(wr,n.root.Parent().Join(nixPath.Path).String())
+		err := nar.DumpPath(wr, realPath.String())
 		wr.CloseWithError(err)
 	}()
 
-	return rdr, nil
+	return rdr, &ninfo, registrationTime, nil
 }

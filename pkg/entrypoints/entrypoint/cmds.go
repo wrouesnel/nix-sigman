@@ -43,6 +43,9 @@ func dispatchCommands(ctx *kong.Context, cmdCtx *CmdContext) error {
 	logger := zap.L().With(zap.String("command", ctx.Command()))
 
 	switch ctx.Command() {
+	case "serve":
+		err = Serve(cmdCtx)
+
 	case "proxy <root>":
 		err = Proxy(cmdCtx)
 	case "sign <nar-info-files>":

@@ -38,7 +38,10 @@ func createBinaryFromNix(c *C, nixPath string) string {
 
 // TODO: make up a fake path
 func (n *NixStoreSuite) TestNarServingWorks(c *C) {
-	store, err := nixstore.NewNixStore(pathlib.NewPath("/nix", pathlib.PathWithAfero(afero.NewOsFs())))
+	pathlib.NewPath("/nix", pathlib.PathWithAfero(afero.NewOsFs()))
+
+	nixDb, nixStoreRoot := nixstore.DefaultNixStore(pathlib.NewPath("", pathlib.PathWithAfero(afero.NewOsFs())))
+	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, nixstore.DefaultStorePath)
 	c.Assert(err, IsNil)
 
 	ninfo, err := store.GetNarInfo(wellKnownPath)

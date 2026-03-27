@@ -86,6 +86,7 @@ var CLI struct {
 	Derivations  DerivationsConfig  `cmd:"" help:"Manipulate derivations"`
 	Realizations RealizationsConfig `cmd:"" help:"Manipulate binary packages"`
 	Proxy        ProxyConfig        `cmd:"" help:"Serve a binary cache with resigning"`
+	Serve ServeConfig `cmd:"" help:"Serve a local nix store"`
 	NewKey       NewKeyConfig       `cmd:"" help:"Generate a new signing keypair for the current user"`
 }
 

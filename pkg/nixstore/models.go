@@ -1,6 +1,8 @@
 package nixstore
 
-import "database/sql"
+import (
+	"database/sql"
+)
 
 // Database models from the nix store
 type DerivationOutput struct {
