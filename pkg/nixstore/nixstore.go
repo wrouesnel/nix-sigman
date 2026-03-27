@@ -2,18 +2,23 @@ package nixstore
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/chigopher/pathlib"
 	"github.com/jmoiron/sqlx"
+	"github.com/samber/lo"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
+	"zombiezen.com/go/nix/nar"
 
 	_ "modernc.org/sqlite"
 )
 
 type NixStore interface {
 	GetNarInfo(path string) (nixtypes.NarInfo, error)
+	GetNar(path string) (io.ReadCloser, error)
 }
 
 const sqlLookupPath = `
@@ -37,6 +42,10 @@ func NewNixStore(root *pathlib.Path) (NixStore, error) {
 	if err := db.Ping(); err != nil {
 		return nil, err
 	}
+
+	// It's presumed the root is a path to the root of /nix
+	// By contention, nix stores pretty much all paths are /nix/store/<something>
+	//
 
 	return &nixStore{
 		root: root,
@@ -86,6 +95,12 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, error) {
 		return nixtypes.NarInfo{}, err
 	}
 
+	refs = lo.Map(refs, func(item string, index int) string {
+		return filepath.Base(item)
+	})
+
+	slices.Sort(refs)
+
 	// Return the narinfo
 	return nixtypes.NarInfo{
 		StorePath:   nixPath.Path,
@@ -96,13 +111,36 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, error) {
 		NarHash:     fileHash, // No compression means these are the same
 		NarSize:     nixPath.NarSize,
 		References:  refs,
-		Deriver:     nixPath.Deriver.V,
+		Deriver:     filepath.Base(nixPath.Deriver.V),
 		Sig:         sigs,
 		CA:          nixPath.Ca.V,
 		Extra:       map[string]string{},
 	}, nil
 }
 
-func (n *nixStore) GetNar(path string) {
+func (n *nixStore) GetNar(path string) (io.ReadCloser, error) {
+	// Extract the hashname
+	hashName, _, _ := strings.Cut(filepath.Base(path), "-")
 
+	// TODO: does this need sanitizing? You can't really do anything by messing with
+	// the lookup given the construction.
+
+	// Execute a very loosey-goosey search so we can work with other paths
+	nixPath := new(ValidPaths)
+	lookupArg := fmt.Sprintf("%%/%s-%%", hashName)
+	if err := n.db.Get(nixPath, sqlLookupPath, lookupArg); err != nil {
+		return nil, err
+	}
+
+	// Our expectation is n.root points to `/nix` or wherever `/nix` has been mounted.
+	// So our intepretation of nix paths should reflect this - namely we go one level up,
+	// and then use that as the base for what path we want to dump from the DB.
+	// This _does not work_ with alternate store directories.
+	rdr, wr := io.Pipe()
+	go func() {
+		err := nar.DumpPath(wr,n.root.Parent().Join(nixPath.Path).String())
+		wr.CloseWithError(err)
+	}()
+
+	return rdr, nil
 }
