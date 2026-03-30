@@ -3,6 +3,7 @@ package entrypoint
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,17 +19,19 @@ import (
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/multihttp"
 	"github.com/wrouesnel/nix-sigman/pkg/nixstore"
+	"github.com/wrouesnel/nix-sigman/pkg/resigning"
 	"go.uber.org/zap"
 	"go.withmatt.com/httpheaders"
 	_ "modernc.org/sqlite"
 )
 
 type ServeConfig struct {
-	Listen    []string `help:"Listen addresses" default:"tcp://127.0.0.1:8081"`
-	Root      string   `help:"Root to search for a nix store" default:"/"`
-	NixDB     *string  `help:"Override the database location"`
-	StoreRoot *string  `help:"Override the store root (but not the store path)"`
-	StorePath string   `help:"Nix store path to advertise (usually should not be changed)" default:"/nix/store"`
+	resigning.ResigningConfig `embed:""`
+	Listen                    []string `help:"Listen addresses" default:"tcp://127.0.0.1:8081"`
+	Root                      string   `help:"Root to search for a nix store" default:"/"`
+	NixDB                     *string  `help:"Override the database location"`
+	StoreRoot                 *string  `help:"Override the store root (but not the store path)"`
+	StorePath                 string   `help:"Nix store path to advertise (usually should not be changed)" default:"/nix/store"`
 }
 
 // Serve implements a Nix HTTP cache server by reading an extant `/nix` directory
@@ -75,7 +78,31 @@ func Serve(cmdCtx *CmdContext) error {
 		return err
 	}
 
-	handler := NixHandler(store, storePath, startTime)
+	l.Debug("Loading private keys")
+	privateKeys, err := loadPrivateKeys(cmdCtx.logger)
+	if err != nil {
+		cmdCtx.logger.Error("Error loading private keys", zap.Error(err))
+		return errors.Join(&ErrCommand{}, err)
+	}
+
+	l.Debug("Loading public keys")
+	publicKeys, err := loadPublicKeys(cmdCtx.logger)
+	if err != nil {
+		cmdCtx.logger.Error("Error loading public keys", zap.Error(err))
+		return errors.Join(&ErrCommand{}, err)
+	}
+
+	l.Debug("Load signing map")
+	signers, err := resigning.LoadSigningMap(l,
+		&CLI.Serve.ResigningConfig,
+		privateKeys,
+		publicKeys,
+	)
+	if err != nil {
+		return errors.Join(&ErrCommand{}, err)
+	}
+
+	handler := NixHandler(l, store, storePath, startTime, signers)
 
 	l.Info("Starting HTTP server")
 	router := httprouter.New()
@@ -130,7 +157,7 @@ Priority: 40
 
 // NixHandler implements the Nix HTTP cache handler. nixStoreRoot is used to set a LastModifiedTime for files in the store
 // corresponding to if the directory has been modified.
-func NixHandler(store nixstore.NixStore, storePath string, startTime time.Time) httprouter.Handle {
+func NixHandler(l *zap.Logger, store nixstore.NixStore, storePath string, startTime time.Time, signers resigning.ConditionalResigners) httprouter.Handle {
 	nixCacheInfoPath := fmt.Sprintf("/%s", NixCacheInfoName)
 	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		// Handle both GET and HEAD.
@@ -160,6 +187,15 @@ func NixHandler(store nixstore.NixStore, storePath string, startTime time.Time) 
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(fmt.Sprintf("error: %s", name)))
 				return
+			}
+
+			if signers != nil {
+				if _, err := signers.MaybeResign(l, &ninfo); err != nil {
+					l.Warn("Signing Error", zap.String("error", err.Error()))
+					w.WriteHeader(http.StatusInternalServerError)
+					w.Write([]byte(fmt.Sprintf("Signing Error: %s", name)))
+					return
+				}
 			}
 
 			content, err := ninfo.MarshalText()

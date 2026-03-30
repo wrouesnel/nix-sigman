@@ -3,21 +3,22 @@ package entrypoint
 import (
 	"errors"
 	"fmt"
+	"strings"
+
 	"github.com/chigopher/pathlib"
 	"github.com/fatih/color"
 	"github.com/samber/lo"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
+	"github.com/wrouesnel/nix-sigman/pkg/resigning"
 	"go.uber.org/zap"
-	"strings"
 )
 
 //nolint:gochecknoglobals
 type SignConfig struct {
-	BackupNARInfos bool              `help:"Make backups of NARinfo files" default:"false"`
-	SigningMap     map[string]string `help:"Conditionally sign by name. Sign all if absent."`
-	SigningMapFile string            `help:"File to load the signing map from - igored if empty"`
-	SigningKeys    []string          `help:"Names of keys to sign with (default all)" default:"*"`
-	NarInfoFiles   []string          `arg:"" help:"NARInfo files to sign - specify - to read list from stdin"`
+	resigning.ResigningConfig `embed:""`
+	BackupNARInfos            bool     `help:"Make backups of NARinfo files" default:"false"`
+	SigningKeys               []string `help:"Names of keys to sign with (default all)" default:"*"`
+	NarInfoFiles              []string `arg:"" help:"NARInfo files to sign - specify - to read list from stdin"`
 }
 
 // Sign implements (re)-signing a NARInfo file
@@ -55,28 +56,14 @@ func Sign(cmdCtx *CmdContext) error {
 		return errors.Join(&ErrCommand{}, errors.New("no private keys selected"))
 	}
 
-	var signers ConditionalResigners
+	var signers resigning.ConditionalResigners
 	if len(CLI.Sign.SigningMap) > 0 || CLI.Sign.SigningMapFile != "" {
 		l.Info("Conditional resigning requested")
-
-		signingMap := map[string]string{}
-
-		if CLI.Proxy.SigningMapFile != "" {
-			signingMap, err = loadSigningMapFile(CLI.Sign.SigningMapFile)
-			if err != nil {
-				cmdCtx.logger.Error("Signing map file specified but could not be loaded")
-				return errors.Join(&ErrCommand{}, err)
-			}
-		}
-
-		for k, v := range CLI.Sign.SigningMap {
-			if lo.HasKey(signingMap, k) {
-				cmdCtx.logger.Debug("Command line overriding signing map file key", zap.String("key", k))
-			}
-			signingMap[k] = v
-		}
-
-		signers, err = buildSigningMap(publicKeys, signingKeys, CLI.Sign.SigningMap)
+		signers, err = resigning.LoadSigningMap(l,
+			&CLI.Serve.ResigningConfig,
+			privateKeys,
+			publicKeys,
+		)
 		if err != nil {
 			return errors.Join(&ErrCommand{}, err)
 		}
