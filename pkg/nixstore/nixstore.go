@@ -1,6 +1,7 @@
 package nixstore
 
 import (
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -18,6 +19,22 @@ import (
 
 	_ "modernc.org/sqlite"
 )
+
+type ErrInvalid struct {
+
+}
+
+func (e ErrInvalid) Error() string {
+	return "invalid query"
+}
+
+type ErrNotFound struct {
+	HashName string
+}
+
+func (e ErrNotFound) Error() string {
+	return fmt.Sprintf("not found: %s", e.HashName)
+}
 
 type NixStore interface {
 	GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error)
@@ -106,6 +123,9 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) 
 	nixPath := new(ValidPaths)
 	lookupArg := fmt.Sprintf("%%/%s-%%", hashName)
 	if err := n.db.Get(nixPath, sqlLookupPath, lookupArg); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nixtypes.NarInfo{}, time.Time{}, &ErrNotFound{HashName: hashName}
+		}
 		return nixtypes.NarInfo{}, time.Time{}, err
 	}
 
@@ -175,7 +195,7 @@ func (n *nixStore) GetStorePathByFileHash(fileHash string) (string, error) {
 	}
 
 	if len(nixPaths) == 0 {
-		return "", errors.New("not found")
+		return "", &ErrNotFound{fileHash}
 	}
 
 	return nixPaths[0].Path, nil

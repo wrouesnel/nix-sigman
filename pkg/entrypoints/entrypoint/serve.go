@@ -184,8 +184,13 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, storePath string, startT
 		if strings.HasSuffix(name, ".narinfo") {
 			ninfo, registrationTime, err := store.GetNarInfo(name)
 			if err != nil {
+				if _, found := errors.AsType[*nixstore.ErrNotFound](err); found {
+					w.WriteHeader(http.StatusNotFound)
+					w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
+					return
+				}
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(fmt.Sprintf("error: %s", name)))
+				w.Write([]byte(fmt.Sprintf("error: %s\n", name)))
 				return
 			}
 
@@ -215,15 +220,25 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, storePath string, startT
 		hashName, _, _ := strings.Cut(path.Base(name), ".")
 		pathInStore, err := store.GetStorePathByFileHash(hashName)
 		if err != nil {
+			if _, found := errors.AsType[*nixstore.ErrNotFound](err); found {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
+				return
+			}
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(fmt.Sprintf("error: %s", name)))
+			w.Write([]byte(fmt.Sprintf("error: %s\n", name)))
 			return
 		}
 
 		rdr, ninfo, registrationTime, err := store.GetNar(pathInStore)
 		if err != nil {
+			if _, found := errors.AsType[*nixstore.ErrNotFound](err); found {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
+				return
+			}
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(fmt.Sprintf("error: %s", name)))
+			w.Write([]byte(fmt.Sprintf("error: %s\n", name)))
 			return
 		}
 		w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", ninfo.FileSize))
