@@ -197,9 +197,6 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, storePath string, startT
 			if signers != nil {
 				if _, err := signers.MaybeResign(l, &ninfo); err != nil {
 					l.Warn("Signing Error", zap.String("error", err.Error()))
-					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(fmt.Sprintf("Signing Error: %s", name)))
-					return
 				}
 			}
 
