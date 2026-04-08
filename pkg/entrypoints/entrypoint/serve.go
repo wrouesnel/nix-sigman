@@ -224,6 +224,10 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, storePath string, startT
 				w.WriteHeader(http.StatusNotFound)
 				w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
 				return
+			} else if _, found := errors.AsType[*nixstore.ErrInvalid](err); found {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
+				return
 			}
 			w.WriteHeader(http.StatusInternalServerError)
 			w.Write([]byte(fmt.Sprintf("error: %s\n", name)))

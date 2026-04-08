@@ -184,7 +184,7 @@ func (n *nixStore) GetStorePathByFileHash(fileHash string) (string, error) {
 	// As far as we know, the store paths in the database are always hex-encoded SHA256
 	typedHash := nixtypes.TypedNixHash{}
 	if err := typedHash.UnmarshalText([]byte(fmt.Sprintf("%s:%s", n.hashingAlg,fileHash))); err != nil {
-		return "", err
+		return "", errors.Join(&ErrInvalid{}, err)
 	}
 
 	hashLookup := fmt.Sprintf("%s:%s", n.hashingAlg, hex.EncodeToString(typedHash.Hash))
