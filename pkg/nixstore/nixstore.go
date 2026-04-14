@@ -21,7 +21,6 @@ import (
 )
 
 type ErrInvalid struct {
-
 }
 
 func (e ErrInvalid) Error() string {
@@ -183,9 +182,15 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) 
 func (n *nixStore) GetStorePathByFileHash(fileHash string) (string, error) {
 	// As far as we know, the store paths in the database are always hex-encoded SHA256
 	typedHash := nixtypes.TypedNixHash{}
-	if err := typedHash.UnmarshalText([]byte(fmt.Sprintf("%s:%s", n.hashingAlg,fileHash))); err != nil {
+	if err := typedHash.UnmarshalText([]byte(fmt.Sprintf("%s:%s", n.hashingAlg, fileHash))); err != nil {
 		return "", errors.Join(&ErrInvalid{}, err)
 	}
+
+	// There's an observed failure where the hex encoded file hash gets passed directly through to
+	// the substitution endpoint. If that's the case, we can end up double-encoding and thus
+	// failing.
+	// Handle this by, in the event of a failure, just trying a direct lookup of whatever we
+	// we were given. TODO: maybe check if the path looks plausibly like it if we see performance issues?
 
 	hashLookup := fmt.Sprintf("%s:%s", n.hashingAlg, hex.EncodeToString(typedHash.Hash))
 	// Execute a very loosey-goosey search so we can work with other paths
@@ -195,7 +200,13 @@ func (n *nixStore) GetStorePathByFileHash(fileHash string) (string, error) {
 	}
 
 	if len(nixPaths) == 0 {
-		return "", &ErrNotFound{fileHash}
+		rawLookup := fmt.Sprintf("%s:%s", n.hashingAlg, typedHash.Hash)
+		if err := n.db.Select(&nixPaths, sqlLookupPathByFileHash, rawLookup); err != nil {
+			return "", err
+		}
+		if len(nixPaths) == 0 {
+			return "", &ErrNotFound{fileHash}
+		}
 	}
 
 	return nixPaths[0].Path, nil
