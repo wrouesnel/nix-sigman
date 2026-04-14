@@ -4,7 +4,7 @@
 .idea
 .vscode
 /**/node_modules
-/mirrorserv
+/nix-sigman
 /bin
 /.bin
 /.coverage
