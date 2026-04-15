@@ -95,16 +95,37 @@ func (n *TypedNixHash) UnmarshalText(text []byte) error {
 		return &ErrInvalidDataFormat{string(text)}
 	}
 	n.HashName = string(hashName)
-	if err := n.Hash.UnmarshalText(encodedHash); err != nil {
-		// Nix also appears to support hex-encoded hashes in the same fields we might
-		// see a TypedNixHash. So before failing, try a hex-decode.
-		var herr error
-		n.Hash, herr = hex.DecodeString(string(encodedHash))
-		if herr == nil {
-			// Was hex - leave it as hex.
-			return nil
+
+	// Nix also appears to support hex-encoded hashes in the same fields we might
+	// see a TypedNixHash. So check hash (sha256) vs length to determine if this
+	// is actually a hex-encoded hash.
+	var decoderFn func(encoded []byte) ([]byte, error)
+
+	hexDecoder := func(encoded []byte) ([]byte, error) {
+		return hex.DecodeString(string(encoded))
+	}
+
+	nixbase32Decoder := func(encoded []byte) ([]byte, error) {
+		return nixbase32.DecodeString(string(text))
+	}
+
+	decoderFn = nixbase32Decoder
+
+	switch n.HashName {
+	case "sha256":
+		if len(encodedHash) == 64 {
+			decoderFn = hexDecoder
 		}
-		// Otherwise just return the original error
+	// future proofing
+	case "sha512":
+		if len(encodedHash) == 128 {
+			decoderFn = hexDecoder
+		}
+	}
+
+	var err error
+	n.Hash, err = decoderFn(encodedHash)
+	if err != nil {
 		return errors.Join(&ErrInvalidDataFormat{string(text)}, err)
 	}
 	return nil
