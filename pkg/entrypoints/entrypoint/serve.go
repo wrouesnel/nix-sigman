@@ -32,6 +32,8 @@ type ServeConfig struct {
 	NixDB                     *string  `help:"Override the database location"`
 	StoreRoot                 *string  `help:"Override the store root (but not the store path)"`
 	StorePath                 string   `help:"Nix store path to advertise (usually should not be changed)" default:"/nix/store"`
+	Priority                  int      `help:"Nix store priority - lower means greater" default:"40"`
+	WantMassQuery             bool     `help:"Set the WantMassQuery flag"`
 }
 
 // Serve implements a Nix HTTP cache server by reading an extant `/nix` directory
@@ -102,7 +104,13 @@ func Serve(cmdCtx *CmdContext) error {
 		return errors.Join(&ErrCommand{}, err)
 	}
 
-	handler := NixHandler(l, store, storePath, startTime, signers)
+	handlerConfig := &NixHandlerConfig{
+		StorePath:     storePath,
+		WantMassQuery: CLI.Serve.WantMassQuery,
+		Priority:      CLI.Serve.Priority,
+		StartTime:    startTime,
+	}
+	handler := NixHandler(l, store, handlerConfig, signers)
 
 	l.Info("Starting HTTP server")
 	router := httprouter.New()
