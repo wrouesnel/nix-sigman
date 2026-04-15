@@ -106,7 +106,7 @@ func (n *TypedNixHash) UnmarshalText(text []byte) error {
 	}
 
 	nixbase32Decoder := func(encoded []byte) ([]byte, error) {
-		return nixbase32.DecodeString(string(text))
+		return nixbase32.DecodeString(string(encoded))
 	}
 
 	decoderFn = nixbase32Decoder
