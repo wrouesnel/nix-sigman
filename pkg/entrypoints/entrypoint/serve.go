@@ -151,13 +151,22 @@ func Serve(cmdCtx *CmdContext) error {
 }
 
 const NixCacheInfoTemplate = `StoreDir: %s
-WantMassQuery: 1
-Priority: 40
+WantMassQuery: %s
+Priority: %d
 `
+
+type NixHandlerConfig struct {
+	// Nix Cache Info parameters
+	StorePath     string
+	WantMassQuery bool
+	Priority      int
+
+	StartTime time.Time
+}
 
 // NixHandler implements the Nix HTTP cache handler. nixStoreRoot is used to set a LastModifiedTime for files in the store
 // corresponding to if the directory has been modified.
-func NixHandler(l *zap.Logger, store nixstore.NixStore, storePath string, startTime time.Time, signers resigning.ConditionalResigners) httprouter.Handle {
+func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig, signers resigning.ConditionalResigners) httprouter.Handle {
 	nixCacheInfoPath := fmt.Sprintf("/%s", NixCacheInfoName)
 	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		// Handle both GET and HEAD.
@@ -166,11 +175,11 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, storePath string, startT
 
 		// Handle the cache info response
 		if name == nixCacheInfoPath {
-			cacheInfoResp := []byte(fmt.Sprintf(NixCacheInfoTemplate, storePath))
+			cacheInfoResp := []byte(fmt.Sprintf(NixCacheInfoTemplate, config.StorePath))
 
 			w.Header().Set(httpheaders.ContentType, "text/x-nix-cache-info")
 			w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(cacheInfoResp)))
-			w.Header().Set(httpheaders.LastModified, startTime.Format(http.TimeFormat))
+			w.Header().Set(httpheaders.LastModified, config.StartTime.Format(http.TimeFormat))
 
 			w.WriteHeader(http.StatusOK)
 			if r.Method == http.MethodHead {
@@ -202,7 +211,11 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, storePath string, startT
 
 			content, err := ninfo.MarshalText()
 			w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(content)))
-			w.Header().Set(httpheaders.LastModified, registrationTime.Format(http.TimeFormat))
+			if registrationTime.After(config.StartTime) {
+				w.Header().Set(httpheaders.LastModified, registrationTime.Format(http.TimeFormat))
+			} else {
+				w.Header().Set(httpheaders.LastModified, config.StartTime.Format(http.TimeFormat))
+			}
 			w.Header().Set(httpheaders.ContentType, "text/x-nix-narinfo")
 			w.WriteHeader(http.StatusOK)
 			if r.Method == http.MethodHead {
