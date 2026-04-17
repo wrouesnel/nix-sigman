@@ -16,6 +16,7 @@ import (
 	lzap "github.com/MadAppGang/httplog/zap"
 	"github.com/chigopher/pathlib"
 	"github.com/julienschmidt/httprouter"
+	"github.com/samber/lo"
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/multihttp"
 	"github.com/wrouesnel/nix-sigman/pkg/nixstore"
@@ -33,7 +34,7 @@ type ServeConfig struct {
 	StoreRoot                 *string  `help:"Override the store root (but not the store path)"`
 	StorePath                 string   `help:"Nix store path to advertise (usually should not be changed)" default:"/nix/store"`
 	Priority                  int      `help:"Nix store priority - lower means greater" default:"40"`
-	WantMassQuery             bool     `help:"Set the WantMassQuery flag"`
+	WantMassQuery             bool     `help:"Set the WantMassQuery flag" default:"true"`
 }
 
 // Serve implements a Nix HTTP cache server by reading an extant `/nix` directory
@@ -108,7 +109,7 @@ func Serve(cmdCtx *CmdContext) error {
 		StorePath:     storePath,
 		WantMassQuery: CLI.Serve.WantMassQuery,
 		Priority:      CLI.Serve.Priority,
-		StartTime:    startTime,
+		StartTime:     startTime,
 	}
 	handler := NixHandler(l, store, handlerConfig, signers)
 
@@ -183,7 +184,7 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig
 
 		// Handle the cache info response
 		if name == nixCacheInfoPath {
-			cacheInfoResp := []byte(fmt.Sprintf(NixCacheInfoTemplate, config.StorePath))
+			cacheInfoResp := []byte(fmt.Sprintf(NixCacheInfoTemplate, config.StorePath, lo.Ternary(config.WantMassQuery, "1", "0"), config.Priority))
 
 			w.Header().Set(httpheaders.ContentType, "text/x-nix-cache-info")
 			w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(cacheInfoResp)))
