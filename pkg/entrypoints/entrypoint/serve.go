@@ -15,11 +15,13 @@ import (
 	"github.com/MadAppGang/httplog"
 	lzap "github.com/MadAppGang/httplog/zap"
 	"github.com/chigopher/pathlib"
+	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/julienschmidt/httprouter"
 	"github.com/samber/lo"
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/multihttp"
 	"github.com/wrouesnel/nix-sigman/pkg/nixstore"
+	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"github.com/wrouesnel/nix-sigman/pkg/resigning"
 	"go.uber.org/zap"
 	"go.withmatt.com/httpheaders"
@@ -35,6 +37,7 @@ type ServeConfig struct {
 	StorePath                 string   `help:"Nix store path to advertise (usually should not be changed)" default:"/nix/store"`
 	Priority                  int      `help:"Nix store priority - lower means greater" default:"40"`
 	WantMassQuery             bool     `help:"Set the WantMassQuery flag" default:"true"`
+	RequiredSignatures        []string `help:"Return 404 for narinfo if named signatures are not valid on the NARinfo file after resigning"`
 }
 
 // Serve implements a Nix HTTP cache server by reading an extant `/nix` directory
@@ -105,11 +108,22 @@ func Serve(cmdCtx *CmdContext) error {
 		return errors.Join(&ErrCommand{}, err)
 	}
 
+	requiredSigs := mapset.NewSet[string](CLI.Serve.RequiredSignatures...)
+	for _, sigName := range CLI.Serve.RequiredSignatures {
+		if !requiredSigs.Contains(sigName) {
+			l.Error("Required signature is not configured as a public key", zap.String("keyname", sigName))
+			return errors.Join(&ErrCommand{}, errors.New("required signature not configured as public signature"))
+		}
+	}
+
 	handlerConfig := &NixHandlerConfig{
 		StorePath:     storePath,
 		WantMassQuery: CLI.Serve.WantMassQuery,
 		Priority:      CLI.Serve.Priority,
-		StartTime:     startTime,
+		RequiredSignatures: lo.FilterSliceToMap(publicKeys, func(item nixtypes.NamedPublicKey) (string, nixtypes.NamedPublicKey, bool) {
+			return item.KeyName, item, requiredSigs.Contains(item.KeyName)
+		}),
+		StartTime: startTime,
 	}
 	handler := NixHandler(l, store, handlerConfig, signers)
 
@@ -170,6 +184,8 @@ type NixHandlerConfig struct {
 	WantMassQuery bool
 	Priority      int
 
+	RequiredSignatures map[string]nixtypes.NamedPublicKey
+
 	StartTime time.Time
 }
 
@@ -177,6 +193,7 @@ type NixHandlerConfig struct {
 // corresponding to if the directory has been modified.
 func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig, signers resigning.ConditionalResigners) httprouter.Handle {
 	nixCacheInfoPath := fmt.Sprintf("/%s", NixCacheInfoName)
+
 	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		// Handle both GET and HEAD.
 		defer r.Body.Close()
@@ -215,6 +232,22 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig
 			if signers != nil {
 				if _, err := signers.MaybeResign(l, &ninfo); err != nil {
 					l.Warn("Signing Error", zap.String("error", err.Error()))
+				}
+			}
+
+			if config.RequiredSignatures != nil {
+				if len(config.RequiredSignatures) > 0 {
+					verified := false
+					for _, publicKey := range config.RequiredSignatures {
+						if verified, _ = ninfo.Verify(publicKey); verified {
+							break
+						}
+					}
+					if !verified {
+						w.WriteHeader(http.StatusNotFound)
+						w.Write([]byte(fmt.Sprintf("not found (invalid signatures): %s\n", name)))
+						return
+					}
 				}
 			}
 
