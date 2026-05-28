@@ -3,6 +3,7 @@ package nixstore_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -38,8 +39,6 @@ func createBinaryFromNix(c *C, nixPath string) string {
 
 // TODO: make up a fake path
 func (n *NixStoreSuite) TestNarServingWorks(c *C) {
-	pathlib.NewPath("/nix", pathlib.PathWithAfero(afero.NewOsFs()))
-
 	nixDb, nixStoreRoot := nixstore.DefaultNixStore(pathlib.NewPath("", pathlib.PathWithAfero(afero.NewOsFs())))
 	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, nixstore.DefaultStorePath)
 	c.Assert(err, IsNil)
@@ -81,31 +80,15 @@ func (n *NixStoreSuite) TestNarServingWorks(c *C) {
 	c.Assert(uint64(canonicalSize), Equals, ninfo.FileSize)
 
 	c.Assert(hex.EncodeToString(h.Sum(nil)), Equals, hex.EncodeToString(canonicalHash.Sum(nil)))
+}
 
-	// Copy the nix path to a different root and check we can extract it properly
-	//altRoot := pathlib.NewPath(c.MkDir(), pathlib.PathWithAfero(afero.NewOsFs()))
-	//canonicalNarRdr, err = storeDir.Join(ninfo.URL).Open()
-	//c.Assert(err, IsNil)
-	//narRdr := nar.NewReader(canonicalNarRdr)
-	//for {
-	//	header, err := narRdr.Next()
-	//	if err != nil {
-	//		if err == io.EOF {
-	//			break
-	//		}
-	//		c.Fatalf("%v", err)
-	//	}
-	//	outputPath := altRoot.Join(header.Path)
-	//	if header.FileInfo().IsDir() {
-	//		// Make the directory
-	//		err = outputPath.Mkdir()
-	//		c.Assert(err, IsNil)
-	//	} else {
-	//		// Otherwise write the file
-	//		f, err := outputPath.OpenFileMode(os.O_CREATE|os.O_WRONLY, header.Mode)
-	//		c.Assert(err, IsNil)
-	//		_, err = io.Copy(f, narRdr)
-	//		c.Assert(err, IsNil)
-	//	}
-	//}
+// TestMissingNarInfoIsntFound check that searching a hash that definitely does not exist also works.
+func (n *NixStoreSuite) TestMissingNarInfoIsntFound(c *C) {
+	nixDb, nixStoreRoot := nixstore.DefaultNixStore(pathlib.NewPath("", pathlib.PathWithAfero(afero.NewOsFs())))
+	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, nixstore.DefaultStorePath)
+	c.Assert(err, IsNil)
+
+	_, _, err = store.GetNarInfo("/nix/store/00000000000000000000000000000000-bash-5.2p37")
+	_, isErr := errors.AsType[*nixstore.ErrNotFound](err)
+	c.Assert(isErr, Equals, true, Commentf("expected not found error for invalid path, got %v", err))
 }
