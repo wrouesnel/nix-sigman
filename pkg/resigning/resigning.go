@@ -82,7 +82,7 @@ func LoadSigningMap(l *zap.Logger, signingConfig *ResigningConfig, privateKeys [
 				if pKey, found := privateKeyMap[keyName]; found {
 					unsignedResigningKeys = append(unsignedResigningKeys, pKey)
 				} else {
-					unsignedErr = multierr.Append(unsignedErr, fmt.Errorf("requested private key not loaded: %s"))
+					unsignedErr = multierr.Append(unsignedErr, fmt.Errorf("requested private key not loaded: %s", keyName))
 				}
 			}
 
