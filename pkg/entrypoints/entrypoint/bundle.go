@@ -5,17 +5,18 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+
 	"github.com/1lann/countwriter"
 	"github.com/chigopher/pathlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/mholt/archives"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
-	"io"
 	_ "modernc.org/sqlite"
-	"os"
-	"path/filepath"
-	"strings"
 	"zombiezen.com/go/nix/nar"
 )
 
@@ -123,6 +124,7 @@ func Bundle(cmdCtx *CmdContext) error {
 
 		nixRows := make([]NixDBValidPaths, 0)
 
+		// TODO: fix this inefficient query as well
 		if err := db.Select(&nixRows, "SELECT * FROM ValidPaths WHERE path LIKE  '%/' || ? || '-%';", narId); err != nil {
 			l.Warn("Failed to query path ID", zap.String("path", path.String()))
 			return err

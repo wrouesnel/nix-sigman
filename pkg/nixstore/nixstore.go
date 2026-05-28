@@ -41,9 +41,11 @@ type NixStore interface {
 	GetStorePathByFileHash(fileHash string) (string, error)
 }
 
+// NOTE: there is a danger to this - it'll always match something if the database
+// is populated, so you need to check you found what you were looking for.
 const sqlLookupPath = `
 SELECT * FROM ValidPaths
-         WHERE path LIKE ?
+         WHERE path >= ? LIMIT 1;
 `
 
 const sqlLookupPathRefs = `
@@ -120,12 +122,18 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) 
 
 	// Execute a very loosey-goosey search so we can work with other paths
 	nixPath := new(ValidPaths)
-	lookupArg := fmt.Sprintf("%%/%s-%%", hashName)
+	lookupArg := fmt.Sprintf("%s/%s-", n.storePath, hashName)
 	if err := n.db.Get(nixPath, sqlLookupPath, lookupArg); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nixtypes.NarInfo{}, time.Time{}, &ErrNotFound{HashName: hashName}
 		}
 		return nixtypes.NarInfo{}, time.Time{}, err
+	}
+
+	trimmedFoundName, _, _ := strings.Cut(filepath.Base(nixPath.Path), ".")
+	foundName, _, _ := strings.Cut(trimmedFoundName, "-")
+	if foundName != hashName {
+		return nixtypes.NarInfo{}, time.Time{}, &ErrNotFound{HashName: hashName}
 	}
 
 	registrationTime := time.Unix(int64(nixPath.RegistrationTime), 0)
