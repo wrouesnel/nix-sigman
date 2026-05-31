@@ -168,7 +168,7 @@ func loadPublicKeys(logger *zap.Logger) ([]nixtypes.NamedPublicKey, error) {
 func loadNarInfo(l *zap.Logger, path *pathlib.Path) (nixtypes.NarInfo, error) {
 	fileBytes, err := path.ReadFile()
 	if err != nil {
-		l.Warn("Could not read file", zap.Error(err))
+		//l.Warn("Could not read file", zap.Error(err))
 		return nixtypes.NarInfo{}, err
 	}
 
@@ -270,7 +270,3 @@ func writeNInfo(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) error
 
 	return nil
 }
-
-
-
-

@@ -89,6 +89,14 @@ type TypedNixHash struct {
 	Hash     NixBase32Field
 }
 
+// Equals checks if two hashes are equivalent
+func (n *TypedNixHash) Equals(other TypedNixHash) bool {
+	if n.HashName != other.HashName {
+		return false
+	}
+	return bytes.Equal(n.Hash, other.Hash)
+}
+
 func (n *TypedNixHash) UnmarshalText(text []byte) error {
 	hashName, encodedHash, ok := bytes.Cut(text, []byte(":"))
 	if !ok {

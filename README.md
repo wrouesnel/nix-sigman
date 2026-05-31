@@ -51,8 +51,16 @@ nix-sigman \
   --signing-map "cache.nixos.org-1&my-other-public-key=my-private-key" proxy /
 ```
 
-This configuration will only apply the signature if *both* signatures are present
-and valid.
+### Unsigned Resigning
+
+`--unsigned-resigning-keys` specifies a list of keys which will be used to sign NARs which
+have _no_ other signatures on them at all - i.e. they have never been signed.
+
+`--unconditional-resigning-keys` specifies a list of keys which will be used to sign _every_
+NAR file, regardless of what signatures are present.
+
+Both of these obviously constitute a potential security hazard, but can be very useful
+when dealing with certain situations.
 
 ## Using Nix HTTP Binary Cache Support
 

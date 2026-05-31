@@ -14,21 +14,24 @@ import (
 )
 
 type ResigningConfig struct {
-	SigningMap             map[string]string `help:"Map of public key names to private key names to sign if present"`
-	SigningMapFile         string            `help:"File to load the signing map from"`
-	AllowUnsignedResigning bool              `help:"Allow signing unsigned packages via the empty key specifier"`
-	UnsignedResigningKeys  []string          `help:"List of key names to be used for signing unsigned packages"`
+	SigningMap                  map[string]string `help:"Map of public key names to private key names to sign if present"`
+	SigningMapFile              string            `help:"File to load the signing map from"`
+	AllowUnsignedResigning      bool              `help:"Allow signing unsigned packages via the empty key specifier"`
+	AllowUnconditionalResigning bool              `help:"Allow signing packages unconditionally"`
+	UnsignedResigningKeys       []string          `help:"List of key names to be used for signing unsigned packages"`
+	UnconditionalResigningKeys  []string          `help:"List of key names which will be used to unconditionally resign all packages"`
 }
 
 type ConditionalResigners []func(ninfo *nixtypes.NarInfo) (bool, error)
 
 // MaybeResign will evaluate the resigning conditions for a NARinfo file and resign it if needed
 func (c ConditionalResigners) MaybeResign(l *zap.Logger, ninfo *nixtypes.NarInfo) (bool, error) {
+	nl := l.With(zap.String("store_path", ninfo.StorePath))
 	didNewSignature := false
 	for _, signer := range c {
 		didSign, err := signer(ninfo)
 		if err != nil {
-			l.Warn("Signing Error", zap.String("error", err.Error()))
+			nl.Warn("Signing Error", zap.String("error", err.Error()))
 			return didNewSignature, err
 		}
 		if !didNewSignature && didSign {
@@ -36,9 +39,9 @@ func (c ConditionalResigners) MaybeResign(l *zap.Logger, ninfo *nixtypes.NarInfo
 		}
 	}
 	if didNewSignature {
-		l.Debug("Resigned narinfo file")
+		nl.Debug("Resigned narinfo file")
 	} else {
-		l.Debug("No match narinfo file")
+		nl.Debug("No match narinfo file")
 	}
 	return didNewSignature, nil
 }
@@ -67,24 +70,26 @@ func LoadSigningMap(l *zap.Logger, signingConfig *ResigningConfig, privateKeys [
 		return
 	}
 
+	// Validate the unsigned keys
+	privateKeyMap := lo.SliceToMap(privateKeys, func(item nixtypes.NamedPrivateKey) (string, nixtypes.NamedPrivateKey) {
+		return item.KeyName, item
+	})
+
 	if signingConfig.AllowUnsignedResigning {
 		var unsignedErr error
 		if len(lo.CoalesceSliceOrEmpty(signingConfig.UnsignedResigningKeys)) == 0 {
 			l.Warn("Unsigned Resigning Activated but no keys specified - unsigned packages will not be resigned")
 		} else {
-			// Validate the unsigned keys
-			privateKeyMap := lo.SliceToMap(privateKeys, func(item nixtypes.NamedPrivateKey) (string, nixtypes.NamedPrivateKey) {
-				return item.KeyName, item
-			})
-
 			unsignedResigningKeys := []nixtypes.NamedPrivateKey{}
 			for _, keyName := range signingConfig.UnsignedResigningKeys {
 				if pKey, found := privateKeyMap[keyName]; found {
 					unsignedResigningKeys = append(unsignedResigningKeys, pKey)
 				} else {
-					unsignedErr = multierr.Append(unsignedErr, fmt.Errorf("requested private key not loaded: %s"))
+					unsignedErr = multierr.Append(unsignedErr, fmt.Errorf("requested private key not loaded: %s", pKey.KeyName))
 				}
 			}
+
+			err = multierr.Combine(err, unsignedErr)
 
 			l.Warn("Unsigned Resigning Activated: all unsigned packages will have these keys applied",
 				zap.Strings("unsigned_resigning_keys", signingConfig.UnsignedResigningKeys))
@@ -104,10 +109,42 @@ func LoadSigningMap(l *zap.Logger, signingConfig *ResigningConfig, privateKeys [
 				return true, nil
 			})
 		}
-		if unsignedErr != nil {
-			err = unsignedErr
-			return
+	} else if len(lo.CoalesceSliceOrEmpty(signingConfig.UnconditionalResigningKeys)) > 0 {
+		l.Warn("Unsigned Resigning Keys specified but unsigned resigning is not being allowed")
+	}
+
+	if signingConfig.AllowUnconditionalResigning {
+		var unconditionalErr error
+		if len(lo.CoalesceSliceOrEmpty(signingConfig.UnconditionalResigningKeys)) == 0 {
+			l.Warn("Unconditional Resigning Activated but no keys specified - no keys will be unconditionally applied")
+		} else {
+			unconditionalResigningKeys := []nixtypes.NamedPrivateKey{}
+			for _, keyName := range signingConfig.UnconditionalResigningKeys {
+				if pKey, found := privateKeyMap[keyName]; found {
+					unconditionalResigningKeys = append(unconditionalResigningKeys, pKey)
+				} else {
+					unconditionalErr = multierr.Append(unconditionalErr, fmt.Errorf("requested private key not loaded: %s", pKey.KeyName))
+				}
+			}
+
+			err = multierr.Combine(err, unconditionalErr)
+
+			l.Warn("Unconditional Resigning Activated: all packages will have these keys applied",
+				zap.Strings("unconditional_resigning_keys", signingConfig.UnconditionalResigningKeys))
+			// Add the unsigned singer to the map
+			signers = append(signers, func(ninfo *nixtypes.NarInfo) (bool, error) {
+				l.Info("Signing package with unconditional keys")
+				for _, pkey := range unconditionalResigningKeys {
+					_, _, err := ninfo.Sign(pkey)
+					if err != nil {
+						return false, err
+					}
+				}
+				return true, nil
+			})
 		}
+	} else if len(lo.CoalesceSliceOrEmpty(signingConfig.UnconditionalResigningKeys)) > 0 {
+		l.Warn("Unconditional Resigning Keys specified but unconditional resigning is not being allowed")
 	}
 
 	return
