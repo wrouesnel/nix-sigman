@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"os"
 	"strings"
 
@@ -71,15 +72,13 @@ func readNinfoFromPaths(cmdCtx *CmdContext, paths []string, cb func(path *pathli
 	return commandErr
 }
 
-// readPathsFromStdin allows reading a list of paths from stdin
-func readPaths(ctx *CmdContext, paths []string, cb func(path *pathlib.Path) error) error {
+// readPaths allows reading a list of paths
+func readPaths(ctx *CmdContext, paths iter.Seq[string], cb func(path *pathlib.Path) error) error {
 	readStdin := false
-	if lo.Contains(paths, "-") {
-		readStdin = true
-	}
 
-	for _, path := range paths {
+	for path := range paths {
 		if path == "-" {
+			readStdin = true
 			continue
 		}
 		if err := cb(pathlib.NewPath(path, pathlib.PathWithAfero(ctx.fs))); err != nil {

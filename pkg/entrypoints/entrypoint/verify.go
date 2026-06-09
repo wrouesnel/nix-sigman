@@ -3,12 +3,14 @@ package entrypoint
 import (
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
+
 	"github.com/chigopher/pathlib"
 	"github.com/fatih/color"
 	"github.com/samber/lo"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
-	"strings"
 )
 
 //nolint:gochecknoglobals
@@ -16,6 +18,7 @@ type VerifyConfig struct {
 	ValidateHashes     bool     `help:"Validate file hashes of archive files" default:"false"`
 	IncludePrivateKeys bool     `help:"Private Keys should also be used for trust" default:"false"`
 	TrustedKeys        []string `help:"Names of keys to verify with (default all)" default:"*"`
+
 	NarInfoFiles       []string `arg:"" help:"NARInfo files. - to read from stdin"`
 }
 
@@ -57,7 +60,7 @@ func Verify(cmdCtx *CmdContext) error {
 		return errors.Join(&ErrCommand{}, errors.New("no public keys selected"))
 	}
 
-	err = readPaths(cmdCtx, CLI.Verify.NarInfoFiles, func(path *pathlib.Path) error {
+	err = readPaths(cmdCtx, slices.Values(CLI.Verify.NarInfoFiles), func(path *pathlib.Path) error {
 		cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:", color.CyanString(path.String()))))
 
 		l := cmdCtx.logger.With(zap.String("path", path.String()))

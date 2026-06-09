@@ -3,6 +3,7 @@ package entrypoint
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/chigopher/pathlib"
@@ -85,7 +86,7 @@ func Sign(cmdCtx *CmdContext) error {
 		})
 	}
 
-	err = readPaths(cmdCtx, CLI.Sign.NarInfoFiles, func(path *pathlib.Path) error {
+	err = readPaths(cmdCtx, slices.Values(CLI.Sign.NarInfoFiles), func(path *pathlib.Path) error {
 		l := cmdCtx.logger.With(zap.String("path", path.String()))
 
 		ninfo, err := loadNarInfo(l, path)

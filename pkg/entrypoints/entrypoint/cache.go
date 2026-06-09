@@ -7,6 +7,7 @@ import (
 	"io"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"sync"
 
@@ -79,7 +80,7 @@ func recurseRealizations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recu
 				}
 			}
 		}()
-		err := readPaths(cmdCtx, currentPaths, func(path *pathlib.Path) error {
+		err := readPaths(cmdCtx, slices.Values(currentPaths), func(path *pathlib.Path) error {
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
 			}

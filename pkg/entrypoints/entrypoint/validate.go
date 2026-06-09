@@ -3,11 +3,13 @@ package entrypoint
 import (
 	"bytes"
 	"fmt"
+	"slices"
+	"strings"
+
 	"github.com/chigopher/pathlib"
 	"github.com/fatih/color"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
-	"strings"
 )
 
 //nolint:gochecknoglobals
@@ -19,7 +21,7 @@ type ValidateConfig struct {
 
 // Validate checks the format of the NARinfo file against the serialization.
 func Validate(cmdCtx *CmdContext) error {
-	err := readPaths(cmdCtx, CLI.Validate.NarInfoFiles, func(path *pathlib.Path) error {
+	err := readPaths(cmdCtx, slices.Values(CLI.Validate.NarInfoFiles), func(path *pathlib.Path) error {
 		l := cmdCtx.logger
 
 		var err error

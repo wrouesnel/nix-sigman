@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/1lann/countwriter"
@@ -116,7 +117,7 @@ func Bundle(cmdCtx *CmdContext) error {
 
 	nixStore := new(string)
 
-	err = readPaths(cmdCtx, CLI.Bundle.Paths, func(path *pathlib.Path) error {
+	err = readPaths(cmdCtx, slices.Values(CLI.Bundle.Paths), func(path *pathlib.Path) error {
 		shortPath := path.Name()
 		narId, _, _ := strings.Cut(shortPath, "-")
 
