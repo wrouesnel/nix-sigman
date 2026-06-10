@@ -30,14 +30,18 @@ import (
 
 type ServeConfig struct {
 	resigning.ResigningConfig `embed:""`
-	Listen                    []string `help:"Listen addresses" default:"tcp://127.0.0.1:8081"`
-	Root                      string   `help:"Root to search for a nix store" default:"/"`
-	NixDB                     *string  `help:"Override the database location"`
-	StoreRoot                 *string  `help:"Override the store root (but not the store path)"`
-	StorePath                 string   `help:"Nix store path to advertise (usually should not be changed)" default:"/nix/store"`
-	Priority                  int      `help:"Nix store priority - lower means greater" default:"40"`
-	WantMassQuery             bool     `help:"Set the WantMassQuery flag" default:"true"`
-	RequiredSignatures        []string `help:"Return 404 for narinfo if named signatures are not valid on the NARinfo file after resigning"`
+	Listen                    []string      `help:"Listen addresses" default:"tcp://127.0.0.1:8081"`
+	Root                      string        `help:"Root to search for a nix store" default:"/"`
+	NixDB                     *string       `help:"Override the database location"`
+	StoreRoot                 *string       `help:"Override the store root (but not the store path)"`
+	StorePath                 string        `help:"Nix store path to advertise (usually should not be changed)" default:"/nix/store"`
+	Priority                  int           `help:"Nix store priority - lower means greater" default:"40"`
+	WantMassQuery             bool          `help:"Set the WantMassQuery flag" default:"true"`
+	RequiredSignatures        []string      `help:"Return 404 for narinfo if named signatures are not valid on the NARinfo file after resigning"`
+	NarInfoFreshDuration      time.Duration `help:"Default cache-control to put on NARinfo file responses" default:"0s"`
+	//CacheEnabled              bool     `help:"Enable binary caching"`
+	//CacheFsBackend            string   `help:"Filesystem backend for caching system" default:"os"`
+	//CacheFsOpts               string   `help:"Filesystem backend optional config" default:""`
 }
 
 // Serve implements a Nix HTTP cache server by reading an extant `/nix` directory
@@ -123,7 +127,8 @@ func Serve(cmdCtx *CmdContext) error {
 		RequiredSignatures: lo.FilterSliceToMap(publicKeys, func(item nixtypes.NamedPublicKey) (string, nixtypes.NamedPublicKey, bool) {
 			return item.KeyName, item, requiredSigs.Contains(item.KeyName)
 		}),
-		StartTime: startTime,
+		StartTime:            startTime,
+		NarInfoFreshDuration: CLI.Serve.NarInfoFreshDuration,
 	}
 	handler := NixHandler(l, store, handlerConfig, signers)
 
@@ -187,6 +192,8 @@ type NixHandlerConfig struct {
 	RequiredSignatures map[string]nixtypes.NamedPublicKey
 
 	StartTime time.Time
+
+	NarInfoFreshDuration time.Duration
 }
 
 // NixHandler implements the Nix HTTP cache handler. nixStoreRoot is used to set a LastModifiedTime for files in the store
@@ -253,12 +260,32 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig
 
 			content, err := ninfo.MarshalText()
 			w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(content)))
-			if registrationTime.After(config.StartTime) {
-				w.Header().Set(httpheaders.LastModified, registrationTime.Format(http.TimeFormat))
-			} else {
-				w.Header().Set(httpheaders.LastModified, config.StartTime.Format(http.TimeFormat))
-			}
+
+			lastModified := lo.Ternary(registrationTime.After(config.StartTime), registrationTime, config.StartTime)
+			w.Header().Set(httpheaders.LastModified, lastModified.Format(http.TimeFormat))
 			w.Header().Set(httpheaders.ContentType, "text/x-nix-narinfo")
+			if ifModifiedSinceHeader := r.Header.Get(httpheaders.IfModifiedSince); ifModifiedSinceHeader != "" {
+				ifModifiedSince, err := time.Parse(http.TimeFormat, ifModifiedSinceHeader)
+				if err == nil {
+					if lastModified.Before(ifModifiedSince) {
+						// File has not been modified (or program not restarted) compared to cache value.
+						// Return not modified.
+						w.WriteHeader(http.StatusNotModified)
+						return
+					}
+				}
+				// Otherwise just proceed as normal
+			}
+			// When returning a response, set cache-control headers.
+			// NARinfo files can change due to resigning changes.
+			cacheDirectives := []string{"public"}
+			if config.NarInfoFreshDuration > 0 {
+				cacheDirectives = append(cacheDirectives, "must-revalidate",
+					fmt.Sprintf("max-age=%v", int(config.NarInfoFreshDuration.Seconds())))
+			} else {
+				cacheDirectives = append(cacheDirectives, "no-cache")
+			}
+			w.Header().Set(httpheaders.CacheControl, strings.Join(cacheDirectives, ", "))
 			w.WriteHeader(http.StatusOK)
 			if r.Method == http.MethodHead {
 				// HEAD - no body response
@@ -287,6 +314,7 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig
 		}
 
 		rdr, ninfo, registrationTime, err := store.GetNar(pathInStore)
+		lastModified := registrationTime
 		if err != nil {
 			if _, found := errors.AsType[*nixstore.ErrNotFound](err); found {
 				w.WriteHeader(http.StatusNotFound)
@@ -300,6 +328,22 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig
 		w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", ninfo.FileSize))
 		w.Header().Set(httpheaders.LastModified, registrationTime.Format(http.TimeFormat))
 		w.Header().Set(httpheaders.Etag, ninfo.FileHash.String())
+		if ifModifiedSinceHeader := r.Header.Get(httpheaders.IfModifiedSince); ifModifiedSinceHeader != "" {
+			ifModifiedSince, err := time.Parse(http.TimeFormat, ifModifiedSinceHeader)
+			if err == nil {
+				if lastModified.Before(ifModifiedSince) {
+					// File has not been modified (or program not restarted) compared to cache value.
+					// Return not modified.
+					w.WriteHeader(http.StatusNotModified)
+					return
+				}
+			}
+			// Otherwise just proceed as normal
+		}
+		// When returning a response, set cache-control headers.
+		// Binaries are immutable.
+		w.Header().Set(httpheaders.CacheControl, "public, immutable")
+
 		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodHead {
 			// HEAD - no bodyresponse

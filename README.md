@@ -73,3 +73,9 @@ For private repositories you can add a comma separated parameter `netrc-file` to
 credentials e.g. `--fs-opt=https://my.private.server,netrc-file=/etc/nix/netrc`.
 
 Note: fs-opt configuration in this circumstance is parsed internally as a single-line CSV file.
+
+## Serve mode
+
+Serve mode provides a powerful way to serve a binary cache from an existing `/nix/store`
+including if the store itself is not under the actual path `/nix/store` - i.e. for serving
+from a snapshotted ZFS filesystem.
