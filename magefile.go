@@ -22,19 +22,15 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/yaml.v3"
-
-	archiver "github.com/mholt/archiver"
-
+	"github.com/integralist/go-findroot/find"
 	"github.com/magefile/mage/mg"
 	"github.com/magefile/mage/sh"
 	"github.com/magefile/mage/target"
-
-	"github.com/integralist/go-findroot/find"
+	archiver "github.com/mholt/archiver/v3"
 	"github.com/pkg/errors"
-
 	"github.com/samber/lo"
 	"golang.org/x/mod/modfile"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -52,9 +48,9 @@ var curDir = func() string {
 
 //nolint:revive,stylecheck
 const (
-	OS_READ        = 04
-	OS_WRITE       = 02
-	OS_EX          = 01
+	OS_READ        = 0o4
+	OS_WRITE       = 0o2
+	OS_EX          = 0o1
 	OS_USER_SHIFT  = 6
 	OS_GROUP_SHIFT = 3
 	OS_OTH_SHIFT   = 0
@@ -134,13 +130,15 @@ var dockerImageName = func() string {
 	return binRootName
 }()
 
-var coverageDir = normalizePath(path.Join(curDir, constCoverageDir))
-var toolsBinDir = normalizePath(path.Join(curDir, constToolBinDir))
-var gitHookDir = normalizePath(path.Join(curDir, constGitHookDir))
-var binDir = normalizePath(path.Join(curDir, constBinDir))
-var releaseDir = normalizePath(path.Join(curDir, constReleaseDir))
-var cmdDir = normalizePath(path.Join(curDir, constCmdDir))
-var junitDir = normalizePath(path.Join(curDir, constJunitDir))
+var (
+	coverageDir = normalizePath(path.Join(curDir, constCoverageDir))
+	toolsBinDir = normalizePath(path.Join(curDir, constToolBinDir))
+	gitHookDir  = normalizePath(path.Join(curDir, constGitHookDir))
+	binDir      = normalizePath(path.Join(curDir, constBinDir))
+	releaseDir  = normalizePath(path.Join(curDir, constReleaseDir))
+	cmdDir      = normalizePath(path.Join(curDir, constCmdDir))
+	junitDir    = normalizePath(path.Join(curDir, constJunitDir))
+)
 
 var outputDirs = []string{binDir, releaseDir, coverageDir, junitDir}
 
@@ -212,12 +210,16 @@ var productName = func() string {
 }()
 
 // Source files.
-var goSrc []string
-var goDirs []string
+var (
+	goSrc  []string
+	goDirs []string
+)
 
 // Due to go:generate and asset embedding interaction, this is now an on demand function
-var goPkgs func() []string
-var goCmds []string
+var (
+	goPkgs func() []string
+	goCmds []string
+)
 
 // Function to calculate the version symbol
 var versionSymbol = func() string {
@@ -291,8 +293,10 @@ func Log(args ...interface{}) {
 	}
 }
 
-var concurrencyQueue chan struct{}
-var concurrencyWg *sync.WaitGroup
+var (
+	concurrencyQueue chan struct{}
+	concurrencyWg    *sync.WaitGroup
+)
 
 // concurrentRun calls a function while respecting concurrency limits, and
 // returns a promise-like function which will resolve to the value.
@@ -411,6 +415,9 @@ func init() {
 		resultMap := make(map[string]struct{})
 		for _, path := range goSrc {
 			absDir, err := filepath.Abs(filepath.Dir(path))
+			if absDir == curDir {
+				continue
+			}
 			if err != nil {
 				panic(err)
 			}
@@ -429,6 +436,7 @@ func init() {
 			panic(err)
 		}
 		for _, line := range strings.Split(out, "\n") {
+			// Exclude the root to make typecheck happy
 			if !strings.Contains(line, "/vendor/") {
 				results = append(results, line)
 			}
@@ -488,7 +496,10 @@ func concurrencyLimitedBuild(buildCmds ...interface{}) error {
 		results = append(results, err)
 		if err != nil {
 			fmt.Println(err)
-			resultErr = errors.Wrap(errParallelBuildFailed, "concurrencyLimitedBuild command failure")
+			resultErr = errors.Wrap(
+				errParallelBuildFailed,
+				"concurrencyLimitedBuild command failure",
+			)
 		}
 		fmt.Printf("Finished %v of %v\n", len(results), len(buildCmds))
 	}
@@ -533,8 +544,11 @@ func Tools() (err error) {
 
 	// golangci-lint don't want to support if it's not a binary release, so
 	// don't go-install.
-	if berr := toolBuild("static", []string{"", "github.com/golangci/golangci-lint/cmd/golangci-lint@v1.63.4"},
-		[]string{"gocovmerge", "github.com/wadey/gocovmerge@latest"}); berr != nil {
+	if berr := toolBuild(
+		"static",
+		[]string{"", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2"},
+		[]string{"gocovmerge", "github.com/wadey/gocovmerge@latest"},
+	); berr != nil {
 		return berr
 	}
 
@@ -653,9 +667,16 @@ func LintersBisect() error {
 // fmt runs golangci-lint with the formatter options.
 func formattingLinter(doFixes bool) error {
 	mg.Deps(Tools)
-	args := []string{"run", "--no-config", "--disable-all", "--enable=gofmt", "--enable=goimports", "--enable=godot", "--enable=tagalign"}
-	if doFixes {
-		args = append(args, "--fix")
+	args := []string{
+		"fmt",
+	}
+	if !doFixes {
+		args = append(args, "--diff-colored")
+		output, err := sh.Output("golangci-lint", args...)
+		if output != "" {
+			return errors.New("formatter would make changes")
+		}
+		return err
 	}
 	return sh.RunV("golangci-lint", args...)
 }
@@ -709,12 +730,19 @@ func Test() error {
 	for _, pkg := range goPkgs() {
 		coverProfile := path.Join(coverageDir,
 			fmt.Sprintf("%s%s", strings.ReplaceAll(pkg, "/", "-"), ".out"))
-		testErr := sh.Run("go", "test", "-v", "-covermode", "count", fmt.Sprintf("-coverprofile=%s", coverProfile),
-			pkg)
+		testErr := sh.Run(
+			"go",
+			"test",
+			"-v",
+			"-covermode",
+			"count",
+			fmt.Sprintf("-coverprofile=%s", coverProfile),
+			pkg,
+		)
 		if testErr != nil {
 			return testErr
 		}
-		//coverProfiles = append(coverProfiles, coverProfile)
+		// coverProfiles = append(coverProfiles, coverProfile)
 	}
 
 	return nil
@@ -782,9 +810,18 @@ func makeBuilder(cmd string, platform Platform) func() error {
 		}
 
 		fmt.Println("Building", platform.PlatformBin(cmd))
-		return sh.RunWith(map[string]string{"CGO_ENABLED": "0", "GOOS": platform.OS, "GOARCH": platform.Arch},
-			"go", "build", "-a", "-ldflags", fmt.Sprintf("-buildid='' -extldflags '-static' -X %s=%s", versionSymbol(), version),
-			"-trimpath", "-o", platform.PlatformBin(cmd), cmdSrc)
+		return sh.RunWith(
+			map[string]string{"CGO_ENABLED": "0", "GOOS": platform.OS, "GOARCH": platform.Arch},
+			"go",
+			"build",
+			"-a",
+			"-ldflags",
+			fmt.Sprintf("-buildid='' -extldflags '-static' -X %s=%s", versionSymbol(), version),
+			"-trimpath",
+			"-o",
+			platform.PlatformBin(cmd),
+			cmdSrc,
+		)
 	}
 	return f
 }
@@ -1014,14 +1051,28 @@ func Autogen() error {
 				// Search until header.
 				if strings.TrimPrefix(line, " ") == constManagedScriptSectionHead {
 					if headAt != -1 {
-						fmt.Println("Found multiple managed script sections in ", fname.Name(), "first was at line ", headAt, "second was at line ", idx)
+						fmt.Println(
+							"Found multiple managed script sections in ",
+							fname.Name(),
+							"first was at line ",
+							headAt,
+							"second was at line ",
+							idx,
+						)
 						return errAutogenMultipleScriptSections
 					}
 					headAt = idx
 					continue
 				} else if strings.TrimPrefix(line, " ") == constManagedScriptSectionFoot {
 					if tailAt != -1 {
-						fmt.Println("Found multiple managed script sections in ", fname.Name(), "first was at line ", headAt, "second was at line ", idx)
+						fmt.Println(
+							"Found multiple managed script sections in ",
+							fname.Name(),
+							"first was at line ",
+							headAt,
+							"second was at line ",
+							idx,
+						)
 						return errAutogenMultipleScriptSections
 					}
 					tailAt = idx + 1
@@ -1038,9 +1089,16 @@ func Autogen() error {
 			}
 
 			scriptPackage := []string{constManagedScriptSectionHead}
-			scriptPackage = append(scriptPackage, "# These lines were added by go run mage.go autogen.", "")
+			scriptPackage = append(
+				scriptPackage,
+				"# These lines were added by go run mage.go autogen.",
+				"",
+			)
 			for _, scriptPath := range scripts {
-				scriptPackage = append(scriptPackage, fmt.Sprintf("\"./%s\" || exit $?", scriptPath))
+				scriptPackage = append(
+					scriptPackage,
+					fmt.Sprintf("\"./%s\" || exit $?", scriptPath),
+				)
 			}
 			scriptPackage = append(scriptPackage, "", constManagedScriptSectionFoot)
 

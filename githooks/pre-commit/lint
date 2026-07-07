@@ -1,0 +1,5 @@
+#!/bin/bash
+
+if ! go run mage.go lint ; then
+  exit 1
+fi
