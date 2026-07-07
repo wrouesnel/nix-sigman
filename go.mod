@@ -7,7 +7,9 @@ require (
 	github.com/MadAppGang/httplog v1.3.0
 	github.com/MadAppGang/httplog/zap v1.2.1
 	github.com/alecthomas/kong v1.15.0
-	github.com/aws/aws-sdk-go v1.55.8
+	github.com/aws/aws-sdk-go-v2 v1.42.1
+	github.com/aws/aws-sdk-go-v2/config v1.32.28
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.105.0
 	github.com/chigopher/pathlib v0.19.1
 	github.com/deckarep/golang-set/v2 v2.9.0
 	github.com/fatih/color v1.19.0
@@ -19,7 +21,7 @@ require (
 	github.com/labstack/gommon v0.5.0
 	github.com/magefile/mage v1.17.2
 	github.com/mailgun/multibuf v0.2.0
-	github.com/mholt/archiver v3.1.1+incompatible
+	github.com/mholt/archiver/v3 v3.5.1
 	github.com/mholt/archives v0.1.5
 	github.com/muesli/go-app-paths v0.2.2
 	github.com/ncruces/go-strftime v1.0.0
@@ -50,8 +52,9 @@ require (
 	github.com/TylerBrock/colorjson v0.0.0-20200706003622-8a50f05110d2 // indirect
 	github.com/abice/go-enum v0.6.0 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.42.1 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.14 // indirect
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.27 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.30 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.22.31 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.30 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.30 // indirect
@@ -60,7 +63,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.23 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.30 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.31 // indirect
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.105.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.3.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.32.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.37.0 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.44.0 // indirect
 	github.com/aws/smithy-go v1.27.3 // indirect
 	github.com/bodgit/plumbing v1.3.0 // indirect
 	github.com/bodgit/sevenzip v1.6.4 // indirect
@@ -69,7 +75,6 @@ require (
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/frankban/quicktest v1.14.6 // indirect
-	github.com/golang-jwt/jwt v3.2.2+incompatible // indirect
 	github.com/golang/mock v1.6.0 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -80,7 +85,6 @@ require (
 	github.com/jdxcode/netrc v1.0.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
-	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/compress v1.19.0 // indirect
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
@@ -88,6 +92,7 @@ require (
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.22 // indirect
 	github.com/mattn/goveralls v0.0.12 // indirect
+	github.com/mholt/archiver v3.1.1+incompatible // indirect
 	github.com/mikelolasagasti/xz v1.0.1 // indirect
 	github.com/minio/minlz v1.1.1 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
@@ -114,7 +119,6 @@ require (
 	go.mongodb.org/mongo-driver v1.17.9 // indirect
 	go4.org v0.0.0-20260112195520-a5071408f32f // indirect
 	golang.org/x/crypto v0.46.0 // indirect
-	golang.org/x/exp v0.0.0-20260611194520-c48552f49976 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260625142307-59b4966ccb57 // indirect
 	golang.org/x/text v0.39.0 // indirect

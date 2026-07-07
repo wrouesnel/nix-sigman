@@ -9,10 +9,9 @@ import (
 	"syscall"
 
 	"github.com/alecthomas/kong"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/chigopher/pathlib"
-	s3 "github.com/fclairamb/afero-s3"
+	s3fs "github.com/fclairamb/afero-s3"
 	"github.com/labstack/gommon/log"
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/kongutil"
@@ -86,7 +85,7 @@ var CLI struct {
 	Derivations  DerivationsConfig  `cmd:"" help:"Manipulate derivations"`
 	Realizations RealizationsConfig `cmd:"" help:"Manipulate binary packages"`
 	Proxy        ProxyConfig        `cmd:"" help:"Serve a binary cache with resigning"`
-	Serve ServeConfig `cmd:"" help:"Serve a local nix store"`
+	Serve        ServeConfig        `cmd:"" help:"Serve a local nix store"`
 	NewKey       NewKeyConfig       `cmd:"" help:"Generate a new signing keypair for the current user"`
 }
 
@@ -188,28 +187,28 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 				}
 			}
 		}
+		// Removed: upgraded to V2 in the library and overrides are now supported
 		// In truly frustrating style, endpoint overrides aren't supported till V2,
 		// which this library isn't based on. Hack them in here.
-		endpointUrl := new(string)
-		if os.Getenv("AWS_ENDPOINT_URL") != "" {
-			*endpointUrl = os.Getenv("AWS_ENDPOINT_URL")
-		}
-		if os.Getenv("AWS_ENDPOINT_URL_S3") != "" {
-			*endpointUrl = os.Getenv("AWS_ENDPOINT_URL_S3")
-		}
-		forcePathStyle := new(bool)
-		if endpointUrl != nil {
-			*forcePathStyle = true
-		}
-		sess, err := session.NewSessionWithOptions(session.Options{
-			Config:            aws.Config{Endpoint: endpointUrl, S3ForcePathStyle: forcePathStyle},
-			SharedConfigState: session.SharedConfigEnable,
-		})
+		//endpointUrl := new(string)
+		//if os.Getenv("AWS_ENDPOINT_URL") != "" {
+		//	*endpointUrl = os.Getenv("AWS_ENDPOINT_URL")
+		//}
+		//if os.Getenv("AWS_ENDPOINT_URL_S3") != "" {
+		//	*endpointUrl = os.Getenv("AWS_ENDPOINT_URL_S3")
+		//}
+		//forcePathStyle := new(bool)
+		//if endpointUrl != nil {
+		//	*forcePathStyle = true
+		//}
+
+		awsCfg, err := config.LoadDefaultConfig(cmdCtx.ctx)
 		if err != nil {
-			logger.Error("Error creating S3 session", zap.Error(err))
+			logger.Error("Error creating AWS config", zap.Error(err))
 			return 1
 		}
-		s3fs := s3.NewFs(CLI.FsOpts, sess)
+
+		s3fs := s3fs.NewFsFromConfig(CLI.FsOpts, awsCfg)
 		if s3fs == nil {
 			logger.Error("Error initializing the S3 FS")
 			return 1
