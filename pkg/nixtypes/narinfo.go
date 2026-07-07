@@ -32,7 +32,7 @@ type NarInfo struct {
 	References  []string
 	Deriver     string
 	Sig         []NixSignature
-	CA			string
+	CA          string
 
 	// Extra is any extra fields we find
 	Extra map[string]string
@@ -46,14 +46,30 @@ func (n *NarInfo) NixHash() string {
 	return nixHash
 }
 
-// Fingerprint returns the fingerpint which is signed/verified by a signature
+// Fingerprint returns the fingerprint which is signed/verified by a signature
 func (n *NarInfo) Fingerprint() []byte {
 	storeRoot := path.Dir(n.StorePath)
-	references := []string{}
+	// Reduce allocations by taking a punt at what we think the byte size will be
+	retSizeEst := 0
 	for _, ref := range n.References {
-		references = append(references, path.Join(storeRoot, ref))
+		retSizeEst += len(ref) + len(storeRoot) + 1 + 1
 	}
-	return []byte(fmt.Sprintf("1;%s;%s;%d;%s", n.StorePath, n.NarHash.String(), n.NarSize, strings.Join(references, ",")))
+	ret := make([]byte, 0, retSizeEst)
+
+	ret = fmt.Appendf(ret, "1;%s;%s;%d;",
+		n.StorePath,
+		n.NarHash.String(),
+		n.NarSize,
+	)
+
+	if len(n.References) > 0 {
+		ret = fmt.Appendf(ret, "%s/%s", storeRoot, n.References[0])
+	}
+
+	for _, ref := range n.References[1:] {
+		ret = fmt.Appendf(ret, ",%s/%s", storeRoot, ref)
+	}
+	return ret
 }
 
 // Verify verifies the NARInfo signature against the given key and returns the
@@ -150,8 +166,7 @@ func (n *NarInfo) UnmarshalText(text []byte) error {
 
 	n.order = make([]string, 0)
 
-	narLines := strings.Split(string(text), "\n")
-	for _, line := range narLines {
+	for line := range strings.SplitSeq(string(text), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -241,12 +256,12 @@ func (n *NarInfo) UnmarshalText(text []byte) error {
 // renderKey handles rendering output keys in the finicky nix format needed for signing
 // - namely that empty keys aren't allowed to have a trailing space (breaks reference
 // signature parsing). TODO: is this true? Or did we break the whole sig mechanism?
-func (n *NarInfo) renderKey(key string, value string) string {
-	if value == "" {
-		return fmt.Sprintf("%s:", key)
-	}
-	return fmt.Sprintf("%s: %s", key, value)
-}
+//func (n *NarInfo) renderKey(key string, value string) string {
+//	if value == "" {
+//		return fmt.Sprintf("%s:", key)
+//	}
+//	return fmt.Sprintf("%s: %s", key, value)
+//}
 
 type NarOutputLines []string
 
@@ -273,9 +288,9 @@ func (n *NarInfo) MarshalText() (text []byte, err error) {
 		outputLines.Add("Compression", n.Compression)
 	}
 	outputLines.Add("FileHash", n.FileHash.String())
-	outputLines.Add("FileSize", fmt.Sprintf("%d", n.FileSize))
+	outputLines.Add("FileSize", strconv.FormatUint(n.FileSize, 10))
 	outputLines.Add("NarHash", n.NarHash.String())
-	outputLines.Add("NarSize", fmt.Sprintf("%d", n.NarSize))
+	outputLines.Add("NarSize", strconv.FormatUint(n.NarSize, 10))
 	outputLines.Add("References", strings.Join(n.References, " "))
 
 	if n.Deriver != "" {
@@ -298,5 +313,5 @@ func (n *NarInfo) MarshalText() (text []byte, err error) {
 	text = []byte(outputLines.String())
 	text = append(text, []byte("\n")...)
 
-	return
+	return text, nil
 }

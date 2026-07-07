@@ -15,11 +15,11 @@ import (
 
 //nolint:gochecknoglobals
 type VerifyConfig struct {
-	ValidateHashes     bool     `help:"Validate file hashes of archive files" default:"false"`
+	ValidateHashes     bool     `help:"Validate file hashes of archive files"      default:"false"`
 	IncludePrivateKeys bool     `help:"Private Keys should also be used for trust" default:"false"`
 	TrustedKeys        []string `help:"Names of keys to verify with (default all)" default:"*"`
 
-	NarInfoFiles       []string `arg:"" help:"NARInfo files. - to read from stdin"`
+	NarInfoFiles []string `arg:"" help:"NARInfo files. - to read from stdin"`
 }
 
 // Verify implements NARInfo and archive verification
@@ -47,9 +47,12 @@ func Verify(cmdCtx *CmdContext) error {
 		cmdCtx.logger.Debug("Verify against ALL public keys")
 		verifyKeys = publicKeys
 	} else {
-		desiredKeyNames := lo.SliceToMap(CLI.Verify.TrustedKeys, func(item string) (string, struct{}) {
-			return item, struct{}{}
-		})
+		desiredKeyNames := lo.SliceToMap(
+			CLI.Verify.TrustedKeys,
+			func(item string) (string, struct{}) {
+				return item, struct{}{}
+			},
+		)
 		verifyKeys = lo.Filter(publicKeys, func(item nixtypes.NamedPublicKey, index int) bool {
 			return lo.HasKey(desiredKeyNames, item.KeyName)
 		})
@@ -83,9 +86,12 @@ func Verify(cmdCtx *CmdContext) error {
 			verifiedKeys = append(verifiedKeys, key)
 		}
 
-		successfulKeyNames := lo.Map(verifiedKeys, func(item nixtypes.NamedPublicKey, index int) string {
-			return item.KeyName
-		})
+		successfulKeyNames := lo.Map(
+			verifiedKeys,
+			func(item nixtypes.NamedPublicKey, index int) string {
+				return item.KeyName
+			},
+		)
 
 		if len(verifiedKeys) > 0 {
 			if CLI.Verify.ValidateHashes {

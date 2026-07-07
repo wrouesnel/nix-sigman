@@ -2,11 +2,12 @@ package entrypoint
 
 import (
 	"fmt"
+	"os"
+	"path"
+
 	gap "github.com/muesli/go-app-paths"
 	"github.com/samber/lo"
 	"github.com/wrouesnel/nix-sigman/version"
-	"os"
-	"path"
 )
 
 func configFileName(prefix string, ext string) string {
@@ -25,11 +26,13 @@ func configDirListGet() ([]string, []string) {
 
 	supportedFmts := []string{"json", "yml", "yaml", "toml"}
 
-	normConfigFiles := []string{}
+	normConfigFiles := make([]string, 0, len(baseConfigDirs))
 	for _, configDir := range baseConfigDirs {
-		normConfigFiles = append(normConfigFiles, lo.Map(supportedFmts, func(ext string, _ int) string {
-			return path.Join(configDir, configFileName("", ext))
-		})...)
+		normConfigFiles = append(
+			normConfigFiles,
+			lo.Map(supportedFmts, func(ext string, _ int) string {
+				return path.Join(configDir, configFileName("", ext))
+			})...)
 	}
 
 	var curDirConfigFiles []string = lo.Map(supportedFmts, func(ext string, _ int) string {

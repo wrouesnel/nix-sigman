@@ -9,7 +9,7 @@ import (
 )
 
 type ErrParsing struct {
-	Failed []interface{}
+	Failed []any
 }
 
 func (e ErrParsing) Error() string {
@@ -30,7 +30,7 @@ func GeneratePrivateKey(name string) (NamedPrivateKey, error) {
 
 func ParsePrivateKeys(reader io.Reader) ([]NamedPrivateKey, error) {
 	keys := []NamedPrivateKey{}
-	failed := []interface{}{}
+	failed := []any{}
 	lines, err := commentedLineParser(reader)
 	if err != nil {
 		return keys, err
@@ -48,7 +48,7 @@ func ParsePrivateKeys(reader io.Reader) ([]NamedPrivateKey, error) {
 
 func ParsePublicKeys(reader io.Reader) ([]NamedPublicKey, error) {
 	keys := []NamedPublicKey{}
-	failed := []interface{}{}
+	failed := []any{}
 	lines, err := commentedLineParser(reader)
 	if err != nil {
 		return keys, err

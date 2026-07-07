@@ -2,6 +2,7 @@ package nixtypes
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/samber/lo"
 	. "gopkg.in/check.v1"
@@ -20,23 +21,22 @@ func (k *KeyUtilsSuite) TestGeneratePrivateKey(c *C) {
 
 // Round trip the private key generator
 func (k *KeyUtilsSuite) TestParsing(c *C) {
-	pkeys := []NamedPrivateKey{}
+	const numKeys = 10
+	pkeys := make([]NamedPrivateKey, 0, numKeys)
 	b := bytes.NewBuffer(nil)
 	publicBytes := bytes.NewBuffer(nil)
-	for i := 0; i < 10; i++ {
+	for range numKeys {
 		pkey, err := GeneratePrivateKey("TestKey")
 		c.Assert(err, IsNil)
 		pkeys = append(pkeys, pkey)
 		pkeyBytes, err := pkey.MarshalText()
 		c.Assert(err, IsNil)
-		b.Write(pkeyBytes)
-		b.Write([]byte("\n"))
+		b.Write(fmt.Append(pkeyBytes, '\n'))
 
 		pubkey := pkey.PublicKey()
 		pubkeyBytes, err := pubkey.MarshalText()
 		c.Assert(err, IsNil)
-		publicBytes.Write(pubkeyBytes)
-		publicBytes.Write([]byte("\n"))
+		publicBytes.Write(fmt.Append(pubkeyBytes, '\n'))
 	}
 
 	rpkeys, err := ParsePrivateKeys(bytes.NewReader(b.Bytes()))
@@ -47,7 +47,11 @@ func (k *KeyUtilsSuite) TestParsing(c *C) {
 	rpubkeys, err := ParsePublicKeys(bytes.NewReader(publicBytes.Bytes()))
 	c.Assert(err, IsNil)
 
-	c.Assert(rpubkeys, DeepEquals, lo.Map(pkeys, func(item NamedPrivateKey, index int) NamedPublicKey {
-		return item.PublicKey()
-	}))
+	c.Assert(
+		rpubkeys,
+		DeepEquals,
+		lo.Map(pkeys, func(item NamedPrivateKey, index int) NamedPublicKey {
+			return item.PublicKey()
+		}),
+	)
 }

@@ -255,8 +255,11 @@ github.com/valyala/bytebufferpool v1.0.0 h1:GqA5TC/0021Y/b9FG4Oi9Mr3q7XYx6Kllzaw
 github.com/valyala/bytebufferpool v1.0.0/go.mod h1:6bBcMArwyJ5K/AmCkWv1jt77kVWyCJ6HpOuEn7z0Csc=
 github.com/valyala/fasttemplate v1.2.2 h1:lxLXG0uE3Qnshl9QyaK6XJxMXlQZELvChBOCmQD0Loo=
 github.com/valyala/fasttemplate v1.2.2/go.mod h1:KHLXt3tVN2HBp8eijSv/kGJopbvo7S+qRAEEKiv+SiQ=
+github.com/wrouesnel/go-nix v0.0.0-20250514174927-d97ab08b45de/go.mod h1:3/4h+nWUdD9F6De1g7zBvgn4RyryS+mnK5JiW2JHRe8=
 github.com/wrouesnel/go-nix v0.0.0-20251014052133-d044f6f931c6 h1:A56UbXZBbTdUkgzUwhga7ZsxznBblIOAKA+308PDB2A=
 github.com/wrouesnel/go-nix v0.0.0-20251014052133-d044f6f931c6/go.mod h1:3/4h+nWUdD9F6De1g7zBvgn4RyryS+mnK5JiW2JHRe8=
+github.com/wrouesnel/go-nix v0.0.0-20260702064350-a751b70a2171 h1:+WD7jUhu+FUFMCwjSVMmNYXSrkVbXx+c56slHppXSS0=
+github.com/wrouesnel/go-nix v0.0.0-20260702064350-a751b70a2171/go.mod h1:mzmhEtGLhUyjfXTRH5FvrOvfe59uRnawl/vPMVLQ9SM=
 github.com/wrouesnel/kongutil v0.0.0-20250331082405-8d531c9e23eb h1:LioUUlSHXXPtuItMTb/Or7LCGelQcVlnpC5H6Y/BEnI=
 github.com/wrouesnel/kongutil v0.0.0-20250331082405-8d531c9e23eb/go.mod h1:3o4ab5Gf+Vc9S3ETnrr9VHa6pzvgide0q6LDLTxvT44=
 github.com/wrouesnel/multihttp v1.0.0 h1:SqtRVDxfQUKaYqXA5luMZqRDPTojrKX9BxjS4KkCk1o=
@@ -395,3 +398,5 @@ modernc.org/strutil v1.2.1 h1:UneZBkQA+DX2Rp35KcM69cSsNES9ly8mQWD71HKlOA0=
 modernc.org/strutil v1.2.1/go.mod h1:EHkiggD70koQxjVdSBM3JKM7k6L0FbGE5eymy9i3B9A=
 modernc.org/token v1.1.0 h1:Xl7Ap9dKaEs5kLoOQeQmPWevfnk/DM5qcLcYlA8ys6Y=
 modernc.org/token v1.1.0/go.mod h1:UGzOrNV1mAFSEB63lOFHIpNRUVMvYTc6yu1SMY/XTDM=
+zombiezen.com/go/nix v0.0.0-20250514174927-d97ab08b45de h1:X37qVOQIIuiEfWf+P4bMpaVPKr9mdwmj2sj3dj7UY18=
+zombiezen.com/go/nix v0.0.0-20250514174927-d97ab08b45de/go.mod h1:3/4h+nWUdD9F6De1g7zBvgn4RyryS+mnK5JiW2JHRe8=

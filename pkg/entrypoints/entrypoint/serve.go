@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,15 +31,15 @@ import (
 
 type ServeConfig struct {
 	resigning.ResigningConfig `embed:""`
-	Listen                    []string      `help:"Listen addresses" default:"tcp://127.0.0.1:8081"`
-	Root                      string        `help:"Root to search for a nix store" default:"/"`
-	NixDB                     *string       `help:"Override the database location"`
-	StoreRoot                 *string       `help:"Override the store root (but not the store path)"`
-	StorePath                 string        `help:"Nix store path to advertise (usually should not be changed)" default:"/nix/store"`
-	Priority                  int           `help:"Nix store priority - lower means greater" default:"40"`
-	WantMassQuery             bool          `help:"Set the WantMassQuery flag" default:"true"`
-	RequiredSignatures        []string      `help:"Return 404 for narinfo if named signatures are not valid on the NARinfo file after resigning"`
-	NarInfoFreshDuration      time.Duration `help:"Default cache-control to put on NARinfo file responses" default:"0s"`
+	Listen                    []string      `         help:"Listen addresses"                                                                             default:"tcp://127.0.0.1:8081"`
+	Root                      string        `         help:"Root to search for a nix store"                                                               default:"/"`
+	NixDB                     *string       `         help:"Override the database location"`
+	StoreRoot                 *string       `         help:"Override the store root (but not the store path)"`
+	StorePath                 string        `         help:"Nix store path to advertise (usually should not be changed)"                                  default:"/nix/store"`
+	Priority                  int           `         help:"Nix store priority - lower means greater"                                                     default:"40"`
+	WantMassQuery             bool          `         help:"Set the WantMassQuery flag"                                                                   default:"true"`
+	RequiredSignatures        []string      `         help:"Return 404 for narinfo if named signatures are not valid on the NARinfo file after resigning"`
+	NarInfoFreshDuration      time.Duration `         help:"Default cache-control to put on NARinfo file responses"                                       default:"0s"`
 	//CacheEnabled              bool     `help:"Enable binary caching"`
 	//CacheFsBackend            string   `help:"Filesystem backend for caching system" default:"os"`
 	//CacheFsOpts               string   `help:"Filesystem backend optional config" default:""`
@@ -71,7 +72,10 @@ func Serve(cmdCtx *CmdContext) error {
 
 	if CLI.Serve.StoreRoot != nil {
 		if filepath.IsAbs(*CLI.Serve.StoreRoot) {
-			nixStoreRoot = pathlib.NewPath(*CLI.Serve.StoreRoot, pathlib.PathWithAfero(afero.NewOsFs()))
+			nixStoreRoot = pathlib.NewPath(
+				*CLI.Serve.StoreRoot,
+				pathlib.PathWithAfero(afero.NewOsFs()),
+			)
 		} else {
 			nixStoreRoot = root.Join(*CLI.Serve.StoreRoot)
 		}
@@ -82,7 +86,7 @@ func Serve(cmdCtx *CmdContext) error {
 		zap.String("store_root", nixStoreRoot.String()),
 		zap.String("store_path", storePath))
 
-	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, storePath)
+	store, err := nixstore.NewNixStore(cmdCtx.ctx, nixDb, nixStoreRoot, storePath)
 	if err != nil {
 		l.Error("Error during server startup", zap.Error(err))
 		return err
@@ -115,8 +119,14 @@ func Serve(cmdCtx *CmdContext) error {
 	requiredSigs := mapset.NewSet[string](CLI.Serve.RequiredSignatures...)
 	for _, sigName := range CLI.Serve.RequiredSignatures {
 		if !requiredSigs.Contains(sigName) {
-			l.Error("Required signature is not configured as a public key", zap.String("keyname", sigName))
-			return errors.Join(&ErrCommand{}, errors.New("required signature not configured as public signature"))
+			l.Error(
+				"Required signature is not configured as a public key",
+				zap.String("keyname", sigName),
+			)
+			return errors.Join(
+				&ErrCommand{},
+				errors.New("required signature not configured as public signature"),
+			)
 		}
 	}
 
@@ -124,9 +134,12 @@ func Serve(cmdCtx *CmdContext) error {
 		StorePath:     storePath,
 		WantMassQuery: CLI.Serve.WantMassQuery,
 		Priority:      CLI.Serve.Priority,
-		RequiredSignatures: lo.FilterSliceToMap(publicKeys, func(item nixtypes.NamedPublicKey) (string, nixtypes.NamedPublicKey, bool) {
-			return item.KeyName, item, requiredSigs.Contains(item.KeyName)
-		}),
+		RequiredSignatures: lo.FilterSliceToMap(
+			publicKeys,
+			func(item nixtypes.NamedPublicKey) (string, nixtypes.NamedPublicKey, bool) {
+				return item.KeyName, item, requiredSigs.Contains(item.KeyName)
+			},
+		),
 		StartTime:            startTime,
 		NarInfoFreshDuration: CLI.Serve.NarInfoFreshDuration,
 	}
@@ -198,7 +211,13 @@ type NixHandlerConfig struct {
 
 // NixHandler implements the Nix HTTP cache handler. nixStoreRoot is used to set a LastModifiedTime for files in the store
 // corresponding to if the directory has been modified.
-func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig, signers resigning.ConditionalResigners) httprouter.Handle {
+func NixHandler(
+	l *zap.Logger,
+	store nixstore.NixStore,
+	config *NixHandlerConfig,
+	signers resigning.ConditionalResigners,
+) httprouter.Handle {
+
 	nixCacheInfoPath := fmt.Sprintf("/%s", NixCacheInfoName)
 
 	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
@@ -208,10 +227,17 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig
 
 		// Handle the cache info response
 		if name == nixCacheInfoPath {
-			cacheInfoResp := []byte(fmt.Sprintf(NixCacheInfoTemplate, config.StorePath, lo.Ternary(config.WantMassQuery, "1", "0"), config.Priority))
+			cacheInfoResp := []byte(
+				fmt.Sprintf(
+					NixCacheInfoTemplate,
+					config.StorePath,
+					lo.Ternary(config.WantMassQuery, "1", "0"),
+					config.Priority,
+				),
+			)
 
 			w.Header().Set(httpheaders.ContentType, "text/x-nix-cache-info")
-			w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(cacheInfoResp)))
+			w.Header().Set(httpheaders.ContentLength, strconv.Itoa(len(cacheInfoResp)))
 			w.Header().Set(httpheaders.LastModified, config.StartTime.Format(http.TimeFormat))
 
 			w.WriteHeader(http.StatusOK)
@@ -259,12 +285,23 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig
 			}
 
 			content, err := ninfo.MarshalText()
-			w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(content)))
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte(fmt.Sprintf("error (%s): %s\n", err.Error(), name)))
+				return
+			}
+			w.Header().Set(httpheaders.ContentLength, strconv.Itoa(len(content)))
 
-			lastModified := lo.Ternary(registrationTime.After(config.StartTime), registrationTime, config.StartTime)
+			lastModified := lo.Ternary(
+				registrationTime.After(config.StartTime),
+				registrationTime,
+				config.StartTime,
+			)
 			w.Header().Set(httpheaders.LastModified, lastModified.Format(http.TimeFormat))
 			w.Header().Set(httpheaders.ContentType, "text/x-nix-narinfo")
-			if ifModifiedSinceHeader := r.Header.Get(httpheaders.IfModifiedSince); ifModifiedSinceHeader != "" {
+			if ifModifiedSinceHeader := r.Header.Get(
+				httpheaders.IfModifiedSince,
+			); ifModifiedSinceHeader != "" {
 				ifModifiedSince, err := time.Parse(http.TimeFormat, ifModifiedSinceHeader)
 				if err == nil {
 					if lastModified.Before(ifModifiedSince) {
@@ -325,10 +362,12 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig
 			w.Write([]byte(fmt.Sprintf("error: %s\n", name)))
 			return
 		}
-		w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", ninfo.FileSize))
+		w.Header().Set(httpheaders.ContentLength, strconv.FormatUint(ninfo.FileSize, 10))
 		w.Header().Set(httpheaders.LastModified, registrationTime.Format(http.TimeFormat))
 		w.Header().Set(httpheaders.Etag, ninfo.FileHash.String())
-		if ifModifiedSinceHeader := r.Header.Get(httpheaders.IfModifiedSince); ifModifiedSinceHeader != "" {
+		if ifModifiedSinceHeader := r.Header.Get(
+			httpheaders.IfModifiedSince,
+		); ifModifiedSinceHeader != "" {
 			ifModifiedSince, err := time.Parse(http.TimeFormat, ifModifiedSinceHeader)
 			if err == nil {
 				if lastModified.Before(ifModifiedSince) {

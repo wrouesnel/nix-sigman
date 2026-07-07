@@ -6,14 +6,15 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/chigopher/pathlib"
-	"github.com/fatih/color"
-	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
-	"go.uber.org/zap"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/chigopher/pathlib"
+	"github.com/fatih/color"
+	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
+	"go.uber.org/zap"
 )
 
 func DebugToBytes(cmdCtx *CmdContext) error {
@@ -131,10 +132,21 @@ func DebugPublicKey(cmdCtx *CmdContext) error {
 }
 
 func DebugFingerprint(cmdCtx *CmdContext) error {
-	err := readNinfoFromPaths(cmdCtx, CLI.Debug.Fingerprint.Paths, func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
-		cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s\n", color.CyanString(path.String()), ninfo.Fingerprint())))
-		return nil
-	})
+	err := readNinfoFromPaths(
+		cmdCtx,
+		CLI.Debug.Fingerprint.Paths,
+		func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
+			cmdCtx.stdOut.Write(
+				fmt.Appendf(
+					[]byte{},
+					"%s:%s\n",
+					color.CyanString(path.String()),
+					ninfo.Fingerprint(),
+				),
+			)
+			return nil
+		},
+	)
 	return err
 }
 
@@ -145,16 +157,30 @@ func DebugSign(cmdCtx *CmdContext) error {
 		return errors.Join(&ErrCommand{}, err)
 	}
 
-	err = readNinfoFromPaths(cmdCtx, CLI.Debug.Sign.Paths, func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
-		for _, key := range privateKeys {
-			value, err := ninfo.MakeSignature(key)
-			if err != nil {
-				cmdCtx.logger.Warn("Could not generate signature for file", zap.String("path", path.String()))
+	err = readNinfoFromPaths(
+		cmdCtx,
+		CLI.Debug.Sign.Paths,
+		func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
+			for _, key := range privateKeys {
+				value, err := ninfo.MakeSignature(key)
+				if err != nil {
+					cmdCtx.logger.Warn(
+						"Could not generate signature for file",
+						zap.String("path", path.String()),
+					)
+				}
+				cmdCtx.stdOut.Write(
+					fmt.Appendf(
+						[]byte{},
+						"%s:%s\n",
+						color.CyanString(path.String()),
+						value.String(),
+					),
+				)
 			}
-			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s\n", color.CyanString(path.String()), value.String())))
-		}
-		return nil
-	})
+			return nil
+		},
+	)
 	return err
 }
 
@@ -162,7 +188,8 @@ func DebugSign(cmdCtx *CmdContext) error {
 // paths.
 func DebugExtractTar(cmdCtx *CmdContext) error {
 	l := cmdCtx.logger
-	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Debug.ExtractTar.OutputDir), pathlib.PathWithAfero(cmdCtx.fs)).Clean()
+	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Debug.ExtractTar.OutputDir), pathlib.PathWithAfero(cmdCtx.fs)).
+		Clean()
 	l.Debug("Ensuring output directory exists", zap.String("output_dir", outputDir.String()))
 	if outputDir.Name() != "/" {
 		if err := outputDir.MkdirAllMode(os.FileMode(0755)); err != nil {
@@ -192,9 +219,14 @@ func DebugExtractTar(cmdCtx *CmdContext) error {
 		}
 
 		cleanedPath := filepath.Clean(header.Name)
-		if strings.HasPrefix(cleanedPath, CLI.Debug.ExtractTar.Prefix) {
-			destPathStr := strings.TrimPrefix(cleanedPath, CLI.Debug.ExtractTar.Prefix)
-			fields := []zap.Field{zap.String("archive_path", cleanedPath), zap.String("dest_path", destPathStr)}
+		if destPathStr, found := strings.CutPrefix(
+			cleanedPath,
+			CLI.Debug.ExtractTar.Prefix,
+		); found {
+			fields := []zap.Field{
+				zap.String("archive_path", cleanedPath),
+				zap.String("dest_path", destPathStr),
+			}
 			if CLI.Debug.ExtractTar.Dryrun {
 				fields = append(fields, zap.Bool("dryrun", CLI.Debug.ExtractTar.Dryrun))
 			}
@@ -268,7 +300,8 @@ func DebugExtractTar(cmdCtx *CmdContext) error {
 // DebugList will list all the objects from the given path.
 func DebugList(cmdCtx *CmdContext) error {
 	l := cmdCtx.logger
-	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Debug.List.Prefix), pathlib.PathWithAfero(cmdCtx.fs)).Clean()
+	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Debug.List.Prefix), pathlib.PathWithAfero(cmdCtx.fs)).
+		Clean()
 	l.Info("Reading directory (this may take a while)")
 	dirNames, err := outputDir.ReadDir()
 	if err != nil {

@@ -198,6 +198,18 @@ linters:
       # String concatenation frequently makes code harder to read.
       strconcat: false
 
+    whitespace:
+      multi-func: true
+
+    unqueryvet:
+      # Allow select *
+      allowed-patterns:
+        - "SELECT \\* FROM .*"
+
+    gosec:
+      excludes:
+        - G304
+        - G110
 
 severity:
   default: error

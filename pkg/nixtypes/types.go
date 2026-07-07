@@ -8,8 +8,11 @@ import (
 	"errors"
 	"fmt"
 
-	"zombiezen.com/go/nix/nixbase32"
+	"github.com/wrouesnel/go-nix/nixbase32"
 )
+
+const SHA256HashLen = 64
+const SHA512HashLen = 128
 
 type ErrInvalidDataFormat struct {
 	Source string
@@ -121,12 +124,12 @@ func (n *TypedNixHash) UnmarshalText(text []byte) error {
 
 	switch n.HashName {
 	case "sha256":
-		if len(encodedHash) == 64 {
+		if len(encodedHash) == SHA256HashLen {
 			decoderFn = hexDecoder
 		}
 	// future proofing
 	case "sha512":
-		if len(encodedHash) == 128 {
+		if len(encodedHash) == SHA512HashLen {
 			decoderFn = hexDecoder
 		}
 	}
@@ -170,7 +173,10 @@ func (n *NamedPublicKey) UnmarshalText(text []byte) error {
 	}
 
 	if len(publicKeyBytes) != ed25519.PublicKeySize {
-		return errors.Join(&ErrInvalidDataFormat{string(text)}, errors.New("public key must be 32 bytes"))
+		return errors.Join(
+			&ErrInvalidDataFormat{string(text)},
+			errors.New("public key must be 32 bytes"),
+		)
 	}
 
 	n.Key = publicKeyBytes
@@ -217,7 +223,10 @@ func (n *NamedPrivateKey) UnmarshalText(text []byte) error {
 	}
 
 	if len(privateKeyBytes) != ed25519.PrivateKeySize {
-		return errors.Join(&ErrInvalidDataFormat{string(text)}, errors.New("private key must be 64 bytes"))
+		return errors.Join(
+			&ErrInvalidDataFormat{string(text)},
+			errors.New("private key must be 64 bytes"),
+		)
 	}
 
 	n.Key = privateKeyBytes

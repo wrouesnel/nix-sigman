@@ -79,3 +79,9 @@ Note: fs-opt configuration in this circumstance is parsed internally as a single
 Serve mode provides a powerful way to serve a binary cache from an existing `/nix/store`
 including if the store itself is not under the actual path `/nix/store` - i.e. for serving
 from a snapshotted ZFS filesystem.
+
+## Push Mode
+
+Both `proxy` and `serve` mode can have HTTP push from nix enabled. This allows a
+nix daemon to upload to the backing store as a binary cache. Specialized `--push-*`
+resigning options are available when operating in this mode.

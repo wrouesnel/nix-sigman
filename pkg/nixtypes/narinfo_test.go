@@ -1,8 +1,9 @@
 package nixtypes
 
 import (
-	. "gopkg.in/check.v1"
 	"strings"
+
+	. "gopkg.in/check.v1"
 )
 
 type NarInfoSuite struct{}
@@ -98,7 +99,7 @@ func (s *NarInfoSuite) TestNarInfoEmptyReferences(c *C) {
 	c.Assert(string(content), DeepEquals, narInfoEmptyReferences)
 	// This used to check the references field didn't have a trailing space,
 	// but it turn out cache.nixos.org serves these that way so that's correct.
-	for _, line := range strings.Split(string(content), "\n") {
+	for line := range strings.SplitSeq(string(content), "\n") {
 		parts := strings.Split(line, ":")
 		if parts[0] == "References" {
 			c.Assert(parts[1], Equals, " ")
@@ -118,7 +119,11 @@ func (s *NarInfoSuite) TestNarInfoEmptyReferencesVerify(c *C) {
 	verified, matchedSigs := ninfo.Verify(key)
 	c.Assert(verified, Equals, true)
 	c.Assert(len(matchedSigs), Equals, 1)
-	c.Assert(matchedSigs[0].String(), Equals, "cache.nixos.org-1:BUOAstUWfupkmoOCjZyXYdtvMX3GzNLSXcTDZEsvUzmlhsSEU+Bxed+dCXfOHBb3Gn7znamBF7aeOwuOMi0YCg==")
+	c.Assert(
+		matchedSigs[0].String(),
+		Equals,
+		"cache.nixos.org-1:BUOAstUWfupkmoOCjZyXYdtvMX3GzNLSXcTDZEsvUzmlhsSEU+Bxed+dCXfOHBb3Gn7znamBF7aeOwuOMi0YCg==",
+	)
 }
 
 func (s *NarInfoSuite) TestNarInfoEmptyReferencesSign(c *C) {
@@ -127,8 +132,8 @@ func (s *NarInfoSuite) TestNarInfoEmptyReferencesSign(c *C) {
 	c.Assert(err, IsNil)
 
 	keyName := strings.ReplaceAll(c.TestName(), " ", "")
-	signKey, err := GeneratePrivateKey(keyName)
-	didSign, _, err := ninfo.Sign(signKey)
+	signKey, _ := GeneratePrivateKey(keyName)
+	didSign, _, _ := ninfo.Sign(signKey)
 	c.Assert(err, IsNil)
 	c.Assert(didSign, Equals, true)
 	didSign, _, err = ninfo.Sign(signKey)
@@ -138,7 +143,12 @@ func (s *NarInfoSuite) TestNarInfoEmptyReferencesSign(c *C) {
 
 	verified, signatures := ninfo.Verify(signKey.PublicKey())
 	c.Assert(verified, Equals, true)
-	c.Assert(len(signatures), Equals, 1, Commentf("sign should only have added 1 signature when multiple calls made"))
+	c.Assert(
+		len(signatures),
+		Equals,
+		1,
+		Commentf("sign should only have added 1 signature when multiple calls made"),
+	)
 	c.Assert(signatures[0].KeyName, Equals, keyName)
 }
 
@@ -164,7 +174,11 @@ func (s *NarInfoSuite) TestNarInfoVerify(c *C) {
 	verified, matchedSigs := ninfo.Verify(key)
 	c.Assert(verified, Equals, true)
 	c.Assert(len(matchedSigs), Equals, 1)
-	c.Assert(matchedSigs[0].String(), Equals, "cache.nixos.org-1:jmkQzt2cr2aaXwrftMjybjNktqNZXcb+6LR8auhzEnIGzU9t6A3HU8Y67vraZJpgJ90XPNfkYiqUvXs5yiomAQ==")
+	c.Assert(
+		matchedSigs[0].String(),
+		Equals,
+		"cache.nixos.org-1:jmkQzt2cr2aaXwrftMjybjNktqNZXcb+6LR8auhzEnIGzU9t6A3HU8Y67vraZJpgJ90XPNfkYiqUvXs5yiomAQ==",
+	)
 }
 
 func (s *NarInfoSuite) TestNarInfoSign(c *C) {
@@ -173,8 +187,8 @@ func (s *NarInfoSuite) TestNarInfoSign(c *C) {
 	c.Assert(err, IsNil)
 
 	keyName := strings.ReplaceAll(c.TestName(), " ", "")
-	signKey, err := GeneratePrivateKey(keyName)
-	didSign, _, err := ninfo.Sign(signKey)
+	signKey, _ := GeneratePrivateKey(keyName)
+	didSign, _, _ := ninfo.Sign(signKey)
 	c.Assert(err, IsNil)
 	c.Assert(didSign, Equals, true)
 	didSign, _, err = ninfo.Sign(signKey)
@@ -184,6 +198,11 @@ func (s *NarInfoSuite) TestNarInfoSign(c *C) {
 
 	verified, signatures := ninfo.Verify(signKey.PublicKey())
 	c.Assert(verified, Equals, true)
-	c.Assert(len(signatures), Equals, 1, Commentf("sign should only have added 1 signature when multiple calls made"))
+	c.Assert(
+		len(signatures),
+		Equals,
+		1,
+		Commentf("sign should only have added 1 signature when multiple calls made"),
+	)
 	c.Assert(signatures[0].KeyName, Equals, keyName)
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/goccy/go-yaml"
 	"github.com/nix-community/go-nix/pkg/derivation"
 	"github.com/wrouesnel/nix-sigman/pkg/nixconsts"
+	"github.com/wrouesnel/nix-sigman/pkg/util/fileutil"
 	"go.uber.org/zap"
 	"golang.org/x/sync/semaphore"
 )
@@ -55,8 +56,14 @@ func DerivationShow(cmdCtx *CmdContext) error {
 		}
 	}
 
-	err := recurseDerivations(cmdCtx.logger, cmdCtx, CLI.Derivations.Show.Paths, CLI.Derivations.Show.Recurse, true,
-		CLI.Derivations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
+	err := recurseDerivations(
+		cmdCtx.logger,
+		cmdCtx,
+		CLI.Derivations.Show.Paths,
+		CLI.Derivations.Show.Recurse,
+		true,
+		CLI.Derivations.StoreRoot,
+		func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
 			l := cmdCtx.logger
 			outputFormat := CLI.Derivations.Show.Format
 			var output []byte
@@ -81,7 +88,11 @@ func DerivationShow(cmdCtx *CmdContext) error {
 				extension, _ := strings.CutPrefix(outputFormat, "-")
 				filename := fmt.Sprintf("%s.%s", path.Name(), extension)
 
-				if err := os.WriteFile(filepath.Join(*outputRoot, filename), output, os.FileMode(0644)); err != nil {
+				if err := os.WriteFile(
+					filepath.Join(*outputRoot, filename),
+					output,
+					os.FileMode(fileutil.NonExecutableWorldReadable),
+				); err != nil {
 					l.Error("could not write file", zap.Error(err))
 					return err
 				}
@@ -90,7 +101,8 @@ func DerivationShow(cmdCtx *CmdContext) error {
 				cmdCtx.stdOut.Write([]byte("\n"))
 			}
 			return nil
-		})
+		},
+	)
 
 	return err
 }
@@ -99,8 +111,14 @@ func DerivationShow(cmdCtx *CmdContext) error {
 // stdout. This allows it to provide a BOM for a given nix build.
 func DerivationUrls(cmdCtx *CmdContext) error {
 	inputUrls := mapset.NewSet[string]()
-	err := recurseDerivations(cmdCtx.logger, cmdCtx, CLI.Derivations.Urls.Paths, true, CLI.Derivations.Urls.Strict,
-		CLI.Derivations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
+	err := recurseDerivations(
+		cmdCtx.logger,
+		cmdCtx,
+		CLI.Derivations.Urls.Paths,
+		true,
+		CLI.Derivations.Urls.Strict,
+		CLI.Derivations.StoreRoot,
+		func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
 			// As far as we know, there's only two possible types of inputs: "url" and "urls", stored
 			// under the env key. urls is spaced separated.
 			inputUris := []*url.URL{}
@@ -112,7 +130,7 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 				inputUris = append(inputUris, uri)
 			}
 			if urlsStr, found := drv.Env["urls"]; found && urlsStr != "" {
-				for _, urlStr := range strings.Split(urlsStr, " ") {
+				for urlStr := range strings.SplitSeq(urlsStr, " ") {
 					if strings.TrimSpace(urlStr) == "" {
 						continue
 					}
@@ -148,8 +166,17 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 			if CLI.Derivations.Urls.EmitTarballCacheUrls && len(inputUris) > 0 {
 				if output, found := drv.Outputs["out"]; found {
 					// We need to ignore r: since it's for recursive derivations we can't calculate.
-					if output.HashAlgorithm != "" && output.Hash != "" && !strings.HasPrefix(output.Hash, "r:") {
-						derivUrls = append(derivUrls, fmt.Sprintf("%v/%v/%v", CLI.Derivations.Urls.TarballCacheBaseUrl, output.HashAlgorithm, output.Hash))
+					if output.HashAlgorithm != "" && output.Hash != "" &&
+						!strings.HasPrefix(output.Hash, "r:") {
+						derivUrls = append(
+							derivUrls,
+							fmt.Sprintf(
+								"%v/%v/%v",
+								CLI.Derivations.Urls.TarballCacheBaseUrl,
+								output.HashAlgorithm,
+								output.Hash,
+							),
+						)
 					}
 				}
 			}
@@ -167,7 +194,8 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 			inputUrls.Add(strings.Join(derivUrls, " "))
 
 			return nil
-		})
+		},
+	)
 
 	urlList := inputUrls.ToSlice()
 	sort.Strings(urlList)
@@ -189,8 +217,16 @@ func (e ErrDerivation) Error() string {
 }
 
 // recurseDerivations follows derivations and calls a function against each one.
-func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recurse bool, strict bool, drvRoot string,
-	cb func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error) error {
+func recurseDerivations(
+	_ *zap.Logger,
+	cmdCtx *CmdContext,
+	paths []string,
+	recurse bool,
+	strict bool,
+	drvRoot string,
+	cb func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error,
+) error {
+
 	nextPaths := paths[:]
 	seenPaths := map[string]struct{}{}
 	seenPathsMtx := new(sync.Mutex)
@@ -219,8 +255,7 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
 			}
-			wg.Add(1)
-			go func() {
+			wg.Go(func() {
 				defer wg.Done()
 				defer sem.Release(1)
 				l := cmdCtx.logger
@@ -248,7 +283,7 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 				}
 
 				if recurse {
-					for inputDrvPath, _ := range drv.InputDerivations {
+					for inputDrvPath := range drv.InputDerivations {
 						drvPath := filepath.Join(drvRoot, inputDrvPath)
 						seenPathsMtx.Lock()
 						if _, found := seenPaths[drvPath]; !found {
@@ -260,7 +295,7 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 				}
 
 				errCh <- nil
-			}()
+			})
 			return nil
 		})
 		cmdCtx.logger.Info("Recursed Paths", zap.Int("next_paths", len(nextPaths)))

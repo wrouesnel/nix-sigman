@@ -1,6 +1,7 @@
 package nixstore
 
 import (
+	"context"
 	"database/sql"
 	"encoding/hex"
 	"errors"
@@ -14,8 +15,8 @@ import (
 	"github.com/chigopher/pathlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/samber/lo"
+	"github.com/wrouesnel/go-nix/nar"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
-	"zombiezen.com/go/nix/nar"
 
 	_ "modernc.org/sqlite"
 )
@@ -71,18 +72,24 @@ func DefaultNixStore(root *pathlib.Path) (db *pathlib.Path, storeRoot *pathlib.P
 	return
 }
 
-func NewNixStore(nixDb *pathlib.Path, storeRoot *pathlib.Path, storePath string) (NixStore, error) {
+func NewNixStore(
+	ctx context.Context,
+	nixDb *pathlib.Path,
+	storeRoot *pathlib.Path,
+	storePath string,
+) (NixStore, error) {
+
 	db, err := sqlx.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", nixDb.String()))
 	if err != nil {
 		return nil, err
 	}
 
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		return nil, err
 	}
 
 	nixPaths := make([]ValidPaths, 0)
-	if err := db.Select(&nixPaths, sqlGetHashingAlg); err != nil {
+	if err := db.SelectContext(ctx, &nixPaths, sqlGetHashingAlg); err != nil {
 		return nil, err
 	}
 
@@ -90,6 +97,8 @@ func NewNixStore(nixDb *pathlib.Path, storeRoot *pathlib.Path, storePath string)
 	if len(nixPaths) > 0 {
 		hashingAlg, _, _ = strings.Cut(nixPaths[0].Hash, ":")
 	}
+
+	// TODO: runtime finalizer?
 
 	return &nixStore{
 		nixDb:      nixDb,
@@ -130,7 +139,7 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) 
 		return nixtypes.NarInfo{}, time.Time{}, err
 	}
 
-	registrationTime := time.Unix(int64(nixPath.RegistrationTime), 0)
+	registrationTime := time.Unix(nixPath.RegistrationTime, 0)
 
 	fileHash := nixtypes.TypedNixHash{}
 	if err := fileHash.UnmarshalText([]byte(nixPath.Hash)); err != nil {
@@ -138,7 +147,7 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) 
 	}
 
 	sigs := []nixtypes.NixSignature{}
-	for _, sigStr := range strings.Split(nixPath.Sigs.V, " ") {
+	for sigStr := range strings.SplitSeq(nixPath.Sigs.V, " ") {
 		if sigStr == "" {
 			continue
 		}
@@ -184,7 +193,9 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) 
 func (n *nixStore) GetStorePathByFileHash(fileHash string) (string, error) {
 	// As far as we know, the store paths in the database are always hex-encoded SHA256
 	typedHash := nixtypes.TypedNixHash{}
-	if err := typedHash.UnmarshalText([]byte(fmt.Sprintf("%s:%s", n.hashingAlg, fileHash))); err != nil {
+	if err := typedHash.UnmarshalText(
+		fmt.Append([]byte(n.hashingAlg), ':', []byte(fileHash)),
+	); err != nil {
 		return "", errors.Join(&ErrInvalid{}, err)
 	}
 
@@ -221,7 +232,7 @@ func (n *nixStore) GetNar(path string) (io.ReadCloser, *nixtypes.NarInfo, time.T
 	}
 
 	// Our expectation is n.root points to `/nix` or wherever `/nix` has been mounted.
-	// So our intepretation of nix paths should reflect this - namely we go one level up,
+	// So our interpretation of nix paths should reflect this - namely we go one level up,
 	// and then use that as the base for what path we want to dump from the DB.
 	// What path we actually use is determined by the value of n.storePath, which should
 	// normally be /nix/store.

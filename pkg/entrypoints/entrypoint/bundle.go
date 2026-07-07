@@ -15,18 +15,19 @@ import (
 	"github.com/chigopher/pathlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/mholt/archives"
+	"github.com/wrouesnel/go-nix/nar"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
+	"github.com/wrouesnel/nix-sigman/pkg/util/fileutil"
 	"go.uber.org/zap"
 	_ "modernc.org/sqlite"
-	"zombiezen.com/go/nix/nar"
 )
 
 //nolint:gochecknoglobals
 type BundleConfig struct {
-	NixDB        string `help:"Path to the nix database" default:"/nix/var/nix/db/db.sqlite"`
-	Compression  string `help:"NAR file compression" enum:"xz" default:"xz"`
+	NixDB        string `help:"Path to the nix database"                  default:"/nix/var/nix/db/db.sqlite"`
+	Compression  string `help:"NAR file compression"                      default:"xz"                        enum:"xz"`
 	OutputDir    string `help:"Output directory to write the bundles too" default:"."`
-	NarOutputDir string `help:"Subdirectory to save NAR files too" default:"nar"`
+	NarOutputDir string `help:"Subdirectory to save NAR files too"        default:"nar"`
 	// TODO: ShardStore - build a sharded store with multiple directory trees
 	Paths []string `arg:"" help:"nix paths or hashes to bundle"`
 }
@@ -67,8 +68,8 @@ func Bundle(cmdCtx *CmdContext) error {
 	if err != nil {
 		return errors.Join(&ErrCommand{}, errors.New("could not create temp file for DB"), err)
 	}
-	defer os.Remove(tempDb.Name())
-	defer tempDb.Close()
+	defer os.Remove(tempDb.Name()) //nolint:errcheck
+	defer tempDb.Close()           //nolint:errcheck
 
 	nixDBBinary, err := os.Open(nixDbPath)
 	if err != nil {
@@ -90,7 +91,8 @@ func Bundle(cmdCtx *CmdContext) error {
 	}
 	l.Debug("Database Connected")
 
-	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Bundle.OutputDir), pathlib.PathWithAfero(cmdCtx.fs)).Clean()
+	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Bundle.OutputDir), pathlib.PathWithAfero(cmdCtx.fs)).
+		Clean()
 	l.Debug("Ensuring output directory exists", zap.String("output_dir", outputDir.String()))
 	if outputDir.Name() != "/" {
 		if err := outputDir.MkdirAllMode(os.FileMode(0755)); err != nil {
@@ -101,7 +103,10 @@ func Bundle(cmdCtx *CmdContext) error {
 	if filepath.IsAbs(CLI.Bundle.NarOutputDir) {
 		narOutputDir = pathlib.NewPath(CLI.Bundle.NarOutputDir, pathlib.PathWithAfero(cmdCtx.fs))
 	}
-	l.Debug("Ensuring NAR output directory exists", zap.String("nar_output_dir", narOutputDir.String()))
+	l.Debug(
+		"Ensuring NAR output directory exists",
+		zap.String("nar_output_dir", narOutputDir.String()),
+	)
 	if err := narOutputDir.MkdirAllMode(os.FileMode(0755)); err != nil {
 		return errors.Join(&ErrCommand{}, errors.New("could not make nar output directory"), err)
 	}
@@ -125,8 +130,12 @@ func Bundle(cmdCtx *CmdContext) error {
 
 		nixRows := make([]NixDBValidPaths, 0)
 
-		// TODO: fix this inefficient query as well
-		if err := db.Select(&nixRows, "SELECT * FROM ValidPaths WHERE path LIKE  '%/' || ? || '-%';", narId); err != nil {
+		// Note: this is efficient provided the glob is fixed...
+		if err := db.Select(
+			&nixRows,
+			"SELECT id,path,hash,registrationTime,deriver,narSize,ultimate,sigs,ca FROM ValidPaths WHERE path glob ?;",
+			fmt.Sprintf("%s*", narId),
+		); err != nil {
 			l.Warn("Failed to query path ID", zap.String("path", path.String()))
 			return err
 		}
@@ -143,6 +152,13 @@ func Bundle(cmdCtx *CmdContext) error {
 
 		nixRow := nixRows[0]
 
+		// Double check it's the right path
+		if foundNarId, _, _ := strings.Cut(shortPath, "-"); foundNarId != narId {
+			// Treat as not found
+			l.Warn("Could not find the requested path in the store")
+			return nil
+		}
+
 		if nixStore == nil {
 			*nixStore = filepath.Dir(nixRow.Path)
 		}
@@ -156,7 +172,7 @@ func Bundle(cmdCtx *CmdContext) error {
 			l.Error("Could not create output file", zap.Error(err))
 			return errors.Join(errors.New("could not create output file"), err)
 		}
-		defer outputFile.Close()
+		defer outputFile.Close() //nolint:errcheck
 
 		// We need two hashes here: the filehash, and the NAR hash so we need several tees
 		// NAR -> -> compressor -> file
@@ -171,7 +187,7 @@ func Bundle(cmdCtx *CmdContext) error {
 			l.Error("Could not create compression writer")
 			return err
 		}
-		defer compWr.Close()
+		defer compWr.Close() //nolint:errcheck
 
 		narWr := countwriter.NewWriter(io.MultiWriter(compWr, narHasher))
 
@@ -197,8 +213,14 @@ func Bundle(cmdCtx *CmdContext) error {
 		// Cross-check the narSize against the DB size
 		if nixRow.NarSize != nil {
 			if *nixRow.NarSize != narFileSize {
-				l.Warn("Obtained NAR filesize does not match database",
-					zap.Uint64("obtained_size", narFileSize), zap.Uint64("written_size", *nixRow.NarSize))
+				l.Warn(
+					"Obtained NAR filesize does not match database",
+					zap.Uint64(
+						"obtained_size",
+						narFileSize,
+					),
+					zap.Uint64("written_size", *nixRow.NarSize),
+				)
 			}
 		}
 
@@ -224,10 +246,13 @@ func Bundle(cmdCtx *CmdContext) error {
 
 		sig := make([]nixtypes.NixSignature, 0)
 		if nixRow.Sigs != nil {
-			for _, sigString := range strings.Split(*nixRow.Sigs, " ") {
+			for sigString := range strings.SplitSeq(*nixRow.Sigs, " ") {
 				s := nixtypes.NixSignature{}
 				if err := s.UnmarshalText([]byte(sigString)); err != nil {
-					l.Error("Could not unmarshal a signature on the row", zap.String("sig_string", sigString))
+					l.Error(
+						"Could not unmarshal a signature on the row",
+						zap.String("sig_string", sigString),
+					)
 					return errors.New("unparseable signature")
 				}
 				sig = append(sig, s)
@@ -242,7 +267,11 @@ func Bundle(cmdCtx *CmdContext) error {
 		// Get references
 		referenceRows := make([]NixDBValidPaths, 0)
 
-		if err := db.Select(&referenceRows, "SELECT * FROM ValidPaths WHERE id in (SELECT reference FROM Refs WHERE referrer = ?);", nixRow.ID); err != nil {
+		if err := db.Select(
+			&referenceRows,
+			"SELECT id,path,hash,registrationTime,deriver,narSize,ultimate,sigs,ca FROM ValidPaths WHERE id in (SELECT reference FROM Refs WHERE referrer = ?);",
+			nixRow.ID,
+		); err != nil {
 			l.Warn("Failed to query references", zap.String("path", path.String()))
 			return err
 		}
@@ -270,9 +299,9 @@ func Bundle(cmdCtx *CmdContext) error {
 			StorePath:   nixRow.Path,
 			URL:         relNarPath.String(),
 			Compression: CLI.Bundle.Compression,
-			FileHash:    nixtypes.TypedNixHash{"sha256", fileHasher.Sum(nil)},
+			FileHash:    nixtypes.TypedNixHash{HashName: "sha256", Hash: fileHasher.Sum(nil)},
 			FileSize:    fileSize,
-			NarHash:     nixtypes.TypedNixHash{hashType, hashBytes},
+			NarHash:     nixtypes.TypedNixHash{HashName: hashType, Hash: hashBytes},
 			NarSize:     narFileSize,
 			References:  references,
 			Deriver:     filepath.Base(deriver),
@@ -300,7 +329,8 @@ Priority: 10
 `, *nixStore,
 	)
 
-	err = outputDir.Join(NixCacheInfoName).WriteFileMode([]byte(metadata), os.FileMode(0644))
+	err = outputDir.Join(NixCacheInfoName).
+		WriteFileMode([]byte(metadata), os.FileMode(fileutil.NonExecutableWorldReadable))
 	if err != nil {
 		l.Error("Failed to write the nix-cache-info file", zap.Error(err))
 		return errors.Join(&ErrCommand{}, err)

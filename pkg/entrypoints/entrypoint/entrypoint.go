@@ -235,7 +235,10 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 			if !urlsFinished && !ok {
 				cacheUrl, err := url.Parse(field)
 				if err != nil {
-					logger.Error("Error parsing supplied URL for nix-http-cache type", zap.Error(err))
+					logger.Error(
+						"Error parsing supplied URL for nix-http-cache type",
+						zap.Error(err),
+					)
 					return 1
 				}
 				cacheUrls = append(cacheUrls, cacheUrl)
@@ -265,7 +268,11 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 		}))
 		fs, err := nix_http_cachefs.NewNixHttpCacheFs(cacheUrls, opts...)
 		if err != nil {
-			logger.Error("Bad configuration for nix-cache-httpfs backend", zap.String("filesystem", CLI.FsBackend), zap.Error(err))
+			logger.Error(
+				"Bad configuration for nix-cache-httpfs backend",
+				zap.String("filesystem", CLI.FsBackend),
+				zap.Error(err),
+			)
 			return 1
 		}
 		cmdCtx.fs = fs

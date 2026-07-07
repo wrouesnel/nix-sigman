@@ -16,10 +16,10 @@ import (
 
 //nolint:gochecknoglobals
 type SignConfig struct {
-	resigning.ResigningConfig `embed:""`
-	BackupNARInfos            bool     `help:"Make backups of NARinfo files" default:"false"`
-	SigningKeys               []string `help:"Names of keys to sign with (default all)" default:"*"`
-	NarInfoFiles              []string `arg:"" help:"NARInfo files to sign - specify - to read list from stdin"`
+	resigning.ResigningConfig `         embed:""`
+	BackupNARInfos            bool     `         help:"Make backups of NARinfo files"                             default:"false"`
+	SigningKeys               []string `         help:"Names of keys to sign with (default all)"                  default:"*"`
+	NarInfoFiles              []string `         help:"NARInfo files to sign - specify - to read list from stdin"                 arg:""`
 }
 
 // Sign implements (re)-signing a NARInfo file
@@ -44,9 +44,12 @@ func Sign(cmdCtx *CmdContext) error {
 		cmdCtx.logger.Debug("Sign with ALL private keys")
 		signingKeys = privateKeys
 	} else {
-		desiredKeyNames := lo.SliceToMap(CLI.Sign.SigningKeys, func(item string) (string, struct{}) {
-			return item, struct{}{}
-		})
+		desiredKeyNames := lo.SliceToMap(
+			CLI.Sign.SigningKeys,
+			func(item string) (string, struct{}) {
+				return item, struct{}{}
+			},
+		)
 		signingKeys = lo.Filter(privateKeys, func(item nixtypes.NamedPrivateKey, index int) bool {
 			return lo.HasKey(desiredKeyNames, item.KeyName)
 		})
@@ -121,12 +124,30 @@ func Sign(cmdCtx *CmdContext) error {
 
 		if errDuringSigning {
 			l.Warn("Errors while signing - no changes made")
-			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path.String()), color.RedString("FAILSIGN"), strings.Join(signatureStrings, " "))))
+			cmdCtx.stdOut.Write(
+				[]byte(
+					fmt.Sprintf(
+						"%s:%s:%s\n",
+						color.CyanString(path.String()),
+						color.RedString("FAILSIGN"),
+						strings.Join(signatureStrings, " "),
+					),
+				),
+			)
 			return nil
 		}
 
 		if !didNewSignature {
-			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path.String()), color.WhiteString("NOCHANGE"), strings.Join(signatureStrings, " "))))
+			cmdCtx.stdOut.Write(
+				[]byte(
+					fmt.Sprintf(
+						"%s:%s:%s\n",
+						color.CyanString(path.String()),
+						color.WhiteString("NOCHANGE"),
+						strings.Join(signatureStrings, " "),
+					),
+				),
+			)
 		} else {
 			if CLI.Sign.BackupNARInfos {
 				if err = backNinfo(l, path); err != nil {
@@ -136,7 +157,16 @@ func Sign(cmdCtx *CmdContext) error {
 			}
 			// Ignore errors - write logs its own errors
 			_ = writeNInfo(l, path, ninfo)
-			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path.String()), color.YellowString("SIGNUPDT"), strings.Join(signatureStrings, " "))))
+			cmdCtx.stdOut.Write(
+				[]byte(
+					fmt.Sprintf(
+						"%s:%s:%s\n",
+						color.CyanString(path.String()),
+						color.YellowString("SIGNUPDT"),
+						strings.Join(signatureStrings, " "),
+					),
+				),
+			)
 		}
 
 		return nil

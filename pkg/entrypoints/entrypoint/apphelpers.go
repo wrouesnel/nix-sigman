@@ -15,12 +15,18 @@ import (
 	"github.com/samber/lo"
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
+	"github.com/wrouesnel/nix-sigman/pkg/util/fileutil"
 	"go.uber.org/zap"
 )
 
 // readNinfoFromPaths reads a list of paths and optionally reads an additional file from
 // stdin (if "-" is specified in the path list).
-func readNinfoFromPaths(cmdCtx *CmdContext, paths []string, cb func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error) error {
+func readNinfoFromPaths(
+	cmdCtx *CmdContext,
+	paths []string,
+	cb func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error,
+) error {
+
 	var commandErr error
 	readStdin := false
 	if lo.Contains(paths, "-") {
@@ -44,7 +50,11 @@ func readNinfoFromPaths(cmdCtx *CmdContext, paths []string, cb func(path *pathli
 			continue
 		}
 		if err := cb(pathlib.NewPath(path, pathlib.PathWithAfero(cmdCtx.fs)), &ninfo); err != nil {
-			cmdCtx.logger.Error("Aborting error during path handling", zap.String("path", path), zap.Error(err))
+			cmdCtx.logger.Error(
+				"Aborting error during path handling",
+				zap.String("path", path),
+				zap.Error(err),
+			)
 			return errors.Join(&ErrCommand{}, err)
 		}
 	}
@@ -63,7 +73,11 @@ func readNinfoFromPaths(cmdCtx *CmdContext, paths []string, cb func(path *pathli
 				// represent stdin as a memmap fs path
 				stdinPath := pathlib.NewPath("-", pathlib.PathWithAfero(afero.NewMemMapFs()))
 				if err := cb(stdinPath, &ninfo); err != nil {
-					cmdCtx.logger.Error("Aborting error during path handling", zap.String("path", "-"), zap.Error(err))
+					cmdCtx.logger.Error(
+						"Aborting error during path handling",
+						zap.String("path", "-"),
+						zap.Error(err),
+					)
 					return errors.Join(&ErrCommand{}, err)
 				}
 			}
@@ -181,7 +195,12 @@ func loadNarInfo(l *zap.Logger, path *pathlib.Path) (nixtypes.NarInfo, error) {
 
 // narHashCheck checks the actual file hash.
 // TODO: consider moving to a NarInfo function.
-func narHashCheck(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) (bool, nixtypes.TypedNixHash, error) {
+func narHashCheck(
+	l *zap.Logger,
+	path *pathlib.Path,
+	ninfo nixtypes.NarInfo,
+) (bool, nixtypes.TypedNixHash, error) { //nolint:unparam
+
 	narPath := path.Parent().Join(ninfo.URL)
 	nl := l.With(zap.String("nar_path", narPath.String()))
 	nl.Debug("Hash Verification")
@@ -209,13 +228,17 @@ func narHashCheck(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) (bo
 	return bytes.Equal(obtainedHash.Hash, ninfo.FileHash.Hash), obtainedHash, nil
 }
 
-func backNinfo(l *zap.Logger, path *pathlib.Path) error {
+func backNinfo(_ *zap.Logger, path *pathlib.Path) error {
 	backupPath := fmt.Sprintf("%s.bak", path)
 	oldNarBytes, err := path.ReadFile()
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(backupPath, oldNarBytes, os.FileMode(0644)); err != nil {
+	if err := os.WriteFile(
+		backupPath,
+		oldNarBytes,
+		os.FileMode(fileutil.NonExecutableWorldReadable),
+	); err != nil {
 		return err
 	}
 	return nil
@@ -251,13 +274,19 @@ func writeNInfo(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) error
 		// While the nix-cache-http FS can't (yet) write files, if it could, then
 		// it would work the same way (since it's pretty much identical to S3).
 		l.Debug("In-place PUT due to object-type storage")
-		if err := path.WriteFileMode(newBytes, os.FileMode(0644)); err != nil {
+		if err := path.WriteFileMode(
+			newBytes,
+			os.FileMode(fileutil.NonExecutableWorldReadable),
+		); err != nil {
 			l.Warn("Failed to write narinfo file - signing aborted")
 			return err
 		}
 	default:
 		l.Debug("Atomic replace with temporary file due to file-like storage")
-		if err := newPath.WriteFileMode(newBytes, os.FileMode(0644)); err != nil {
+		if err := newPath.WriteFileMode(
+			newBytes,
+			os.FileMode(fileutil.NonExecutableWorldReadable),
+		); err != nil {
 			l.Warn("Failed to write narinfo file - signing aborted")
 			return err
 		}

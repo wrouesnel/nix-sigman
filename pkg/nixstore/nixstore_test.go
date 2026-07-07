@@ -1,6 +1,7 @@
 package nixstore_test
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -27,9 +28,15 @@ const wellKnownPath = "/nix/store/58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37"
 
 type NixStoreSuite struct{}
 
-func createBinaryFromNix(c *C, nixPath string) string {
+func createBinaryFromNix(ctx context.Context, c *C, nixPath string) string {
 	targetDir := c.MkDir()
-	cmd := exec.Command("nix", "copy", "--to", fmt.Sprintf("file://%s?compression=none", targetDir), nixPath)
+	cmd := exec.CommandContext(ctx,
+		"nix",
+		"copy",
+		"--to",
+		fmt.Sprintf("file://%s?compression=none", targetDir),
+		nixPath,
+	)
 	err := cmd.Start()
 	c.Assert(err, IsNil, Commentf("error invoking system nix command: %v", err))
 	err = cmd.Wait()
@@ -39,8 +46,10 @@ func createBinaryFromNix(c *C, nixPath string) string {
 
 // TODO: make up a fake path
 func (n *NixStoreSuite) TestNarServingWorks(c *C) {
-	nixDb, nixStoreRoot := nixstore.DefaultNixStore(pathlib.NewPath("", pathlib.PathWithAfero(afero.NewOsFs())))
-	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, nixstore.DefaultStorePath)
+	nixDb, nixStoreRoot := nixstore.DefaultNixStore(
+		pathlib.NewPath("", pathlib.PathWithAfero(afero.NewOsFs())),
+	)
+	store, err := nixstore.NewNixStore(nil, nixDb, nixStoreRoot, nixstore.DefaultStorePath)
 	c.Assert(err, IsNil)
 
 	ninfo, _, err := store.GetNarInfo(wellKnownPath)
@@ -49,7 +58,10 @@ func (n *NixStoreSuite) TestNarServingWorks(c *C) {
 	c.Assert(err, IsNil)
 
 	// Compare to the NarInfo
-	storeDir := pathlib.NewPath(createBinaryFromNix(c, wellKnownPath), pathlib.PathWithAfero(afero.NewOsFs()))
+	storeDir := pathlib.NewPath(
+		createBinaryFromNix(context.TODO(), c, wellKnownPath),
+		pathlib.PathWithAfero(afero.NewOsFs()),
+	)
 	canonicalNarInfo, err := storeDir.Join(fmt.Sprintf("%v.narinfo", ninfo.NixHash())).ReadFile()
 	c.Assert(err, IsNil)
 	c.Assert(string(ninfoText), Equals, string(canonicalNarInfo))
@@ -61,7 +73,8 @@ func (n *NixStoreSuite) TestNarServingWorks(c *C) {
 	// Hash it...
 	h := sha256.New()
 
-	fmode, err := storeDir.Join("comparison.nar").OpenFileMode(os.O_CREATE|os.O_WRONLY, os.FileMode(0644))
+	fmode, err := storeDir.Join("comparison.nar").
+		OpenFileMode(os.O_CREATE|os.O_WRONLY, os.FileMode(0644))
 	c.Assert(err, IsNil)
 
 	teer := io.TeeReader(rdr, fmode)
@@ -84,11 +97,18 @@ func (n *NixStoreSuite) TestNarServingWorks(c *C) {
 
 // TestMissingNarInfoIsntFound check that searching a hash that definitely does not exist also works.
 func (n *NixStoreSuite) TestMissingNarInfoIsntFound(c *C) {
-	nixDb, nixStoreRoot := nixstore.DefaultNixStore(pathlib.NewPath("", pathlib.PathWithAfero(afero.NewOsFs())))
-	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, nixstore.DefaultStorePath)
+	nixDb, nixStoreRoot := nixstore.DefaultNixStore(
+		pathlib.NewPath("", pathlib.PathWithAfero(afero.NewOsFs())),
+	)
+	store, err := nixstore.NewNixStore(nil, nixDb, nixStoreRoot, nixstore.DefaultStorePath)
 	c.Assert(err, IsNil)
 
 	_, _, err = store.GetNarInfo("/nix/store/00000000000000000000000000000000-bash-5.2p37")
 	_, isErr := errors.AsType[*nixstore.ErrNotFound](err)
-	c.Assert(isErr, Equals, true, Commentf("expected not found error for invalid path, got %v", err))
+	c.Assert(
+		isErr,
+		Equals,
+		true,
+		Commentf("expected not found error for invalid path, got %v", err),
+	)
 }

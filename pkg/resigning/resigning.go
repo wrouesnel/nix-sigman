@@ -46,14 +46,20 @@ func (c ConditionalResigners) MaybeResign(l *zap.Logger, ninfo *nixtypes.NarInfo
 	return didNewSignature, nil
 }
 
-func LoadSigningMap(l *zap.Logger, signingConfig *ResigningConfig, privateKeys []nixtypes.NamedPrivateKey, publicKeys []nixtypes.NamedPublicKey) (signers ConditionalResigners, err error) {
+func LoadSigningMap(
+	l *zap.Logger,
+	signingConfig *ResigningConfig,
+	privateKeys []nixtypes.NamedPrivateKey,
+	publicKeys []nixtypes.NamedPublicKey,
+) (signers ConditionalResigners, err error) {
+
 	signingMap := make(map[string]string, 0)
 
 	if signingConfig.SigningMapFile != "" {
 		signingMap, err = loadSigningMapFile(signingConfig.SigningMapFile)
 		if err != nil {
-			l.Error("Signing map file specified but could not be loaded")
-			return
+			l.Error("Signing map file specified but could not be loaded", zap.Error(err))
+			return nil, err
 		}
 	}
 
@@ -67,32 +73,42 @@ func LoadSigningMap(l *zap.Logger, signingConfig *ResigningConfig, privateKeys [
 	l.Info("Building resigning map")
 	signers, err = buildSigningMap(publicKeys, privateKeys, signingMap)
 	if err != nil {
-		return
+		return nil, err
 	}
 
 	// Validate the unsigned keys
-	privateKeyMap := lo.SliceToMap(privateKeys, func(item nixtypes.NamedPrivateKey) (string, nixtypes.NamedPrivateKey) {
-		return item.KeyName, item
-	})
+	privateKeyMap := lo.SliceToMap(
+		privateKeys,
+		func(item nixtypes.NamedPrivateKey) (string, nixtypes.NamedPrivateKey) {
+			return item.KeyName, item
+		},
+	)
 
 	if signingConfig.AllowUnsignedResigning {
 		var unsignedErr error
 		if len(lo.CoalesceSliceOrEmpty(signingConfig.UnsignedResigningKeys)) == 0 {
-			l.Warn("Unsigned Resigning Activated but no keys specified - unsigned packages will not be resigned")
+			l.Warn(
+				"Unsigned Resigning Activated but no keys specified - unsigned packages will not be resigned",
+			)
 		} else {
 			unsignedResigningKeys := []nixtypes.NamedPrivateKey{}
 			for _, keyName := range signingConfig.UnsignedResigningKeys {
 				if pKey, found := privateKeyMap[keyName]; found {
 					unsignedResigningKeys = append(unsignedResigningKeys, pKey)
 				} else {
-					unsignedErr = multierr.Append(unsignedErr, fmt.Errorf("requested private key not loaded: %s", pKey.KeyName))
+					unsignedErr = multierr.Append(
+						unsignedErr,
+						fmt.Errorf("requested private key not loaded: %s", pKey.KeyName),
+					)
 				}
 			}
 
 			err = multierr.Combine(err, unsignedErr)
 
-			l.Warn("Unsigned Resigning Activated: all unsigned packages will have these keys applied",
-				zap.Strings("unsigned_resigning_keys", signingConfig.UnsignedResigningKeys))
+			l.Warn(
+				"Unsigned Resigning Activated: all unsigned packages will have these keys applied",
+				zap.Strings("unsigned_resigning_keys", signingConfig.UnsignedResigningKeys),
+			)
 			// Add the unsigned singer to the map
 			signers = append(signers, func(ninfo *nixtypes.NarInfo) (bool, error) {
 				if len(ninfo.Sig) > 0 {
@@ -116,21 +132,31 @@ func LoadSigningMap(l *zap.Logger, signingConfig *ResigningConfig, privateKeys [
 	if signingConfig.AllowUnconditionalResigning {
 		var unconditionalErr error
 		if len(lo.CoalesceSliceOrEmpty(signingConfig.UnconditionalResigningKeys)) == 0 {
-			l.Warn("Unconditional Resigning Activated but no keys specified - no keys will be unconditionally applied")
+			l.Warn(
+				"Unconditional Resigning Activated but no keys specified - no keys will be unconditionally applied",
+			)
 		} else {
 			unconditionalResigningKeys := []nixtypes.NamedPrivateKey{}
 			for _, keyName := range signingConfig.UnconditionalResigningKeys {
 				if pKey, found := privateKeyMap[keyName]; found {
 					unconditionalResigningKeys = append(unconditionalResigningKeys, pKey)
 				} else {
-					unconditionalErr = multierr.Append(unconditionalErr, fmt.Errorf("requested private key not loaded: %s", pKey.KeyName))
+					unconditionalErr = multierr.Append(
+						unconditionalErr,
+						fmt.Errorf("requested private key not loaded: %s", pKey.KeyName),
+					)
 				}
 			}
 
 			err = multierr.Combine(err, unconditionalErr)
 
-			l.Warn("Unconditional Resigning Activated: all packages will have these keys applied",
-				zap.Strings("unconditional_resigning_keys", signingConfig.UnconditionalResigningKeys))
+			l.Warn(
+				"Unconditional Resigning Activated: all packages will have these keys applied",
+				zap.Strings(
+					"unconditional_resigning_keys",
+					signingConfig.UnconditionalResigningKeys,
+				),
+			)
 			// Add the unsigned singer to the map
 			signers = append(signers, func(ninfo *nixtypes.NarInfo) (bool, error) {
 				l.Info("Signing package with unconditional keys")
@@ -144,10 +170,12 @@ func LoadSigningMap(l *zap.Logger, signingConfig *ResigningConfig, privateKeys [
 			})
 		}
 	} else if len(lo.CoalesceSliceOrEmpty(signingConfig.UnconditionalResigningKeys)) > 0 {
-		l.Warn("Unconditional Resigning Keys specified but unconditional resigning is not being allowed")
+		l.Warn(
+			"Unconditional Resigning Keys specified but unconditional resigning is not being allowed",
+		)
 	}
 
-	return
+	return signers, err
 }
 
 func loadSigningMapFile(path string) (map[string]string, error) {
@@ -176,16 +204,25 @@ func loadSigningMapFile(path string) (map[string]string, error) {
 }
 
 // buildSigningMap builds the data structures for doing conditional signing
-func buildSigningMap(publicKeys []nixtypes.NamedPublicKey,
-	privateKeys []nixtypes.NamedPrivateKey, signingMap map[string]string) (signers ConditionalResigners, setupErr error) {
+func buildSigningMap(
+	publicKeys []nixtypes.NamedPublicKey,
+	privateKeys []nixtypes.NamedPrivateKey,
+	signingMap map[string]string,
+) (signers ConditionalResigners, setupErr error) {
 
-	privMap := lo.SliceToMap(privateKeys, func(item nixtypes.NamedPrivateKey) (string, nixtypes.NamedPrivateKey) {
-		return item.KeyName, item
-	})
+	privMap := lo.SliceToMap(
+		privateKeys,
+		func(item nixtypes.NamedPrivateKey) (string, nixtypes.NamedPrivateKey) {
+			return item.KeyName, item
+		},
+	)
 
-	pubMap := lo.SliceToMap(publicKeys, func(item nixtypes.NamedPublicKey) (string, nixtypes.NamedPublicKey) {
-		return item.KeyName, item
-	})
+	pubMap := lo.SliceToMap(
+		publicKeys,
+		func(item nixtypes.NamedPublicKey) (string, nixtypes.NamedPublicKey) {
+			return item.KeyName, item
+		},
+	)
 
 	for k, v := range signingMap {
 		requiredPublicKeys := strings.Split(k, "&")
@@ -194,7 +231,10 @@ func buildSigningMap(publicKeys []nixtypes.NamedPublicKey,
 		requiredKeys := []nixtypes.NamedPublicKey{}
 		for _, key := range requiredPublicKeys {
 			if !lo.HasKey(pubMap, key) && key != "" {
-				setupErr = multierr.Append(setupErr, fmt.Errorf("requested public key not loaded: %s", key))
+				setupErr = multierr.Append(
+					setupErr,
+					fmt.Errorf("requested public key not loaded: %s", key),
+				)
 			} else if key != "" {
 				requiredKeys = append(requiredKeys, pubMap[key])
 			}
@@ -203,7 +243,10 @@ func buildSigningMap(publicKeys []nixtypes.NamedPublicKey,
 		signingKeys := []nixtypes.NamedPrivateKey{}
 		for _, key := range requiredPrivateKeys {
 			if !lo.HasKey(privMap, key) {
-				setupErr = multierr.Append(setupErr, fmt.Errorf("requested private key not loaded: %s", key))
+				setupErr = multierr.Append(
+					setupErr,
+					fmt.Errorf("requested private key not loaded: %s", key),
+				)
 			} else {
 				signingKeys = append(signingKeys, privMap[key])
 			}
@@ -231,5 +274,5 @@ func buildSigningMap(publicKeys []nixtypes.NamedPublicKey,
 			return didNewSignature, nil
 		})
 	}
-	return
+	return signers, setupErr
 }

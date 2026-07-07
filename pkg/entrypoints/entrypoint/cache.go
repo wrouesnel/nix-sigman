@@ -23,23 +23,35 @@ type RealizationsConfig struct {
 	List      struct {
 		Strict bool     `help:"If true then abort if any derivation fails to parse"`
 		Paths  []string `arg:"" help:"Nix Paths"`
-	} `cmd:"" help:"List all dependencies of the given package"`
+	} `help:"List all dependencies of the given package"                                         cmd:""`
 }
 
 func RealizationsList(cmdCtx *CmdContext) error {
 	inputUrls := mapset.NewSet[string]()
-	err := recurseRealizations(cmdCtx.logger, cmdCtx, CLI.Realizations.List.Paths, true, CLI.Realizations.List.Strict,
-		CLI.Realizations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
+	err := recurseRealizations(
+		cmdCtx.logger,
+		cmdCtx,
+		CLI.Realizations.List.Paths,
+		true,
+		CLI.Realizations.List.Strict,
+		CLI.Realizations.StoreRoot,
+		func(cmdCtx *CmdContext, path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
 			inputUrls.Add(path.String())
 			return nil
-		})
+		},
+	)
+
+	if err != nil {
+		return err
+	}
 
 	urlList := inputUrls.ToSlice()
 	sort.Strings(urlList)
 
 	for _, subUrl := range urlList {
-		cmdCtx.stdOut.Write([]byte(subUrl))
-		cmdCtx.stdOut.Write([]byte("\n"))
+		if _, err := cmdCtx.stdOut.Write(fmt.Append([]byte(subUrl), '\n')); err != nil {
+			return err
+		}
 	}
 
 	return err
@@ -54,8 +66,16 @@ func (e ErrNinfo) Error() string {
 }
 
 // recurseRealizations follows derivations and calls a function against each one.
-func recurseRealizations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recurse bool, strict bool, storeRoot string,
-	cb func(cmdCtx *CmdContext, path *pathlib.Path, ninfo *nixtypes.NarInfo) error) error {
+func recurseRealizations(
+	_ *zap.Logger,
+	cmdCtx *CmdContext,
+	paths []string,
+	recurse bool,
+	strict bool,
+	storeRoot string,
+	cb func(cmdCtx *CmdContext, path *pathlib.Path, ninfo *nixtypes.NarInfo) error,
+) error {
+
 	nextPaths := paths[:]
 	seenPaths := map[string]struct{}{}
 	seenPathsMtx := new(sync.Mutex)
@@ -84,13 +104,15 @@ func recurseRealizations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recu
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
 			}
-			wg.Add(1)
-			go func() {
+			wg.Go(func() {
 				defer wg.Done()
 				defer sem.Release(1)
 				l := cmdCtx.logger
 
-				ninfoPath := pathlib.NewPath(path.String()+".narinfo", pathlib.PathWithAfero(path.Fs()))
+				ninfoPath := pathlib.NewPath(
+					path.String()+".narinfo",
+					pathlib.PathWithAfero(path.Fs()),
+				)
 
 				fh, err := ninfoPath.Open()
 				if err != nil {
@@ -136,7 +158,7 @@ func recurseRealizations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recu
 				}
 
 				errCh <- nil
-			}()
+			})
 			return nil
 		})
 		cmdCtx.logger.Info("Recursed Paths", zap.Int("next_paths", len(nextPaths)))

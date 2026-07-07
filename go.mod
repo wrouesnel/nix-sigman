@@ -1,6 +1,6 @@
 module github.com/wrouesnel/nix-sigman
 
-go 1.25.5
+go 1.26
 
 require (
 	github.com/1lann/countwriter v0.0.0-20160329163811-702ae82f0549
@@ -29,6 +29,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/samber/lo v1.53.0
 	github.com/spf13/afero v1.15.0
+	github.com/wrouesnel/go-nix v0.0.0-20260702064350-a751b70a2171
 	github.com/wrouesnel/kongutil v0.0.0-20250331082405-8d531c9e23eb
 	github.com/wrouesnel/multihttp v1.0.0
 	github.com/wrouesnel/nix-http-cachefs v0.0.0-20251217024558-f63034e83d08
@@ -41,7 +42,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	gorm.io/gorm v1.31.2
 	modernc.org/sqlite v1.53.0
-	zombiezen.com/go/nix v0.0.0-20250514174927-d97ab08b45de
 )
 
 require (
@@ -127,11 +127,10 @@ require (
 	modernc.org/libc v1.74.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
+	zombiezen.com/go/nix v0.0.0-20250514174927-d97ab08b45de // indirect
 )
 
 tool (
 	github.com/abice/go-enum
 	golang.org/x/tools/cmd/stringer
 )
-
-replace zombiezen.com/go/nix => github.com/wrouesnel/go-nix v0.0.0-20251014052133-d044f6f931c6

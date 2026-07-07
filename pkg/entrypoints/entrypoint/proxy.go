@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/MadAppGang/httplog"
@@ -25,12 +26,12 @@ import (
 //nolint:gochecknoglobals
 type ProxyConfig struct {
 	resigning.ResigningConfig `embed:""`
-	AllowPush                 bool                      `help:"Enable writing to the proxied store"`
-	PushResigningConfig       resigning.ResigningConfig `embed:"" prefix:"push-"`
-	PushRequiresResigning     bool                      `help:"Require pushed packages to match a resigning rule"`
-	PushOverwrite             bool                      `help:"Try and overwrite conflicting store paths if they're non-identical'"`
-	Listen                    []string                  `help:"Listen addresses" default:"tcp://127.0.0.1:8080"`
-	Root                      string                    `arg:"" help:"Root path of the binary cache"`
+	AllowPush                 bool                      `         help:"Enable writing to the proxied store"`
+	PushResigningConfig       resigning.ResigningConfig `embed:""                                                                            prefix:"push-"`
+	PushRequiresResigning     bool                      `         help:"Require pushed packages to match a resigning rule"`
+	PushOverwrite             bool                      `         help:"Try and overwrite conflicting store paths if they're non-identical'"`
+	Listen                    []string                  `         help:"Listen addresses"                                                                   default:"tcp://127.0.0.1:8080"`
+	Root                      string                    `         help:"Root path of the binary cache"                                                                                     arg:""`
 }
 
 // Proxy implements the dynamic resigning server
@@ -109,7 +110,7 @@ func Proxy(cmdCtx *CmdContext) error {
 
 			w.Header().Set(httpheaders.ContentType, "text/x-nix-cache-info")
 			if st != nil {
-				w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", st.Size()))
+				w.Header().Set(httpheaders.ContentLength, strconv.FormatInt(st.Size(), 10))
 				w.Header().Set(httpheaders.LastModified, st.ModTime().Format(http.TimeFormat))
 			}
 			w.WriteHeader(http.StatusOK)
@@ -129,32 +130,34 @@ func Proxy(cmdCtx *CmdContext) error {
 				if err != nil {
 					l.Info("Error setting up new buffer space", zap.Error(err))
 					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(fmt.Sprintf("Internal Server Error: %s", name)))
+					w.Write(fmt.Append([]byte("Internal Server Error: "), name))
 					return
 				}
 				nBytes, err := io.Copy(ninfoReceiver, r.Body)
 				if err != nil {
 					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(fmt.Sprintf("Internal Server Error: %s", name)))
+					w.Write(fmt.Append([]byte("Internal Server Error: "), name))
 					return
 				}
 				ninfoReader, err := ninfoReceiver.Reader()
 				if err != nil {
 					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(fmt.Sprintf("Internal Server Error: %s", name)))
+					w.Write(fmt.Append([]byte("Internal Server Error: "), name))
 					return
 				}
 				ninfoBytes, err := io.ReadAll(ninfoReader)
 				if err != nil {
 					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(fmt.Sprintf("Internal Server Error: %s", name)))
+					w.Write(fmt.Append([]byte("Internal Server Error:"), name))
 					return
 				}
 
 				receivedNinfo := nixtypes.NarInfo{}
 				if err := receivedNinfo.UnmarshalText(ninfoBytes); err != nil {
 					w.WriteHeader(http.StatusBadRequest)
-					w.Write([]byte(fmt.Sprintf("Bad Request (could not parse NARinfo file): %s", name)))
+					w.Write(
+						fmt.Append([]byte("Bad Request (could not parse NARinfo file): "), name),
+					)
 					return
 				}
 
@@ -167,19 +170,40 @@ func Proxy(cmdCtx *CmdContext) error {
 						return
 					} else if !didSignature && CLI.Proxy.PushRequiresResigning {
 						w.WriteHeader(http.StatusForbidden)
-						w.Write([]byte(fmt.Sprintf("Forbidden (supplied path did not match any push resigning rules): %s", name)))
+						w.Write(
+							fmt.Append(
+								[]byte(
+									"Forbidden (supplied path did not match any push resigning rules): ",
+								),
+								name,
+							),
+						)
 						return
 					}
 				} else if CLI.Proxy.PushRequiresResigning && pushSigners == nil {
 					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(fmt.Sprintf("Internal Server Error (resigning required but no resigners configured): %s", name)))
+					w.Write(
+						fmt.Append(
+							[]byte(
+								"Internal Server Error (resigning required but no resigners configured): ",
+							),
+							name,
+						),
+					)
 					return
 				}
 
 				marshalledNinfo, err := receivedNinfo.MarshalText()
 				if err != nil {
 					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(fmt.Sprintf("Internal Server Error (could not marshal resigned received NARinfo): %s", name)))
+					w.Write(
+						fmt.Append(
+							[]byte(
+								"Internal Server Error (could not marshal resigned received NARinfo): ",
+							),
+							name,
+						),
+					)
 					return
 				}
 
@@ -208,13 +232,21 @@ func Proxy(cmdCtx *CmdContext) error {
 						marshalledNinfo, err = ninfo.MarshalText()
 						if err != nil {
 							w.WriteHeader(http.StatusInternalServerError)
-							w.Write([]byte(fmt.Sprintf("Internal Server Error (could not marshal resigned received NARinfo): %s", name)))
+							w.Write(
+								fmt.Append([]byte(
+									"Internal Server Error (could not marshal resigned received NARinfo): ",
+								),
+									name,
+								),
+							)
 							return
 						}
 						if !changed {
 							// No changes - return immediately.
-							w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(marshalledNinfo)))
-							w.Header().Set(httpheaders.LastModified, st.ModTime().Format(http.TimeFormat))
+							w.Header().
+								Set(httpheaders.ContentLength, strconv.Itoa(len(marshalledNinfo)))
+							w.Header().
+								Set(httpheaders.LastModified, st.ModTime().Format(http.TimeFormat))
 							w.WriteHeader(http.StatusOK)
 							io.Copy(w, bytes.NewReader(marshalledNinfo))
 							return
@@ -222,7 +254,13 @@ func Proxy(cmdCtx *CmdContext) error {
 					} else {
 						if !CLI.Proxy.PushOverwrite {
 							w.WriteHeader(http.StatusConflict)
-							w.Write([]byte(fmt.Sprintf("Conflict: Remote path already exists and replacing is not allowed: %s", name)))
+							w.Write(
+								fmt.Append([]byte(
+									"Conflict: Remote path already exists and replacing is not allowed: ",
+								),
+									name,
+								),
+							)
 						} else {
 							l.Info("Overwriting colliding store path with incoming one")
 						}
@@ -233,7 +271,11 @@ func Proxy(cmdCtx *CmdContext) error {
 				f, err := requestName.OpenFile(os.O_CREATE | os.O_WRONLY)
 				if err != nil {
 					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(fmt.Sprintf("Internal Server Error (could not create file): %s", name)))
+					w.Write(
+						[]byte(
+							fmt.Sprintf("Internal Server Error (could not create file): %s", name),
+						),
+					)
 					return
 				}
 				_, err = io.Copy(f, bytes.NewReader(marshalledNinfo))
@@ -245,7 +287,11 @@ func Proxy(cmdCtx *CmdContext) error {
 						l.Error("Could not remove partially written file", zap.Error(err))
 					}
 					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(fmt.Sprintf("Internal Server Error (could not write file): %s", name)))
+					w.Write(
+						[]byte(
+							fmt.Sprintf("Internal Server Error (could not write file): %s", name),
+						),
+					)
 					return
 				}
 				// Stat the result
@@ -253,12 +299,19 @@ func Proxy(cmdCtx *CmdContext) error {
 				if err != nil {
 					// If we can't stat the path after writing it, something has gone wrong.
 					w.WriteHeader(http.StatusInternalServerError)
-					w.Write([]byte(fmt.Sprintf("Internal Server Error (could not stat new file): %s", name)))
+					w.Write(
+						[]byte(
+							fmt.Sprintf(
+								"Internal Server Error (could not stat new file): %s",
+								name,
+							),
+						),
+					)
 					return
 				}
 
 				// Success uploading new NARinfo
-				w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(marshalledNinfo)))
+				w.Header().Set(httpheaders.ContentLength, strconv.Itoa(len(marshalledNinfo)))
 				w.Header().Set(httpheaders.LastModified, st.ModTime().Format(http.TimeFormat))
 				w.WriteHeader(http.StatusOK)
 				io.Copy(w, bytes.NewReader(marshalledNinfo))
@@ -296,7 +349,7 @@ func Proxy(cmdCtx *CmdContext) error {
 			}
 
 			if st != nil {
-				w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(content)))
+				w.Header().Set(httpheaders.ContentLength, strconv.Itoa(len(content)))
 				w.Header().Set(httpheaders.LastModified, st.ModTime().Format(http.TimeFormat))
 			}
 			w.Header().Set(httpheaders.ContentType, "text/x-nix-narinfo")
@@ -315,7 +368,7 @@ func Proxy(cmdCtx *CmdContext) error {
 		switch r.Method {
 		case http.MethodHead:
 			if st != nil {
-				w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", st.Size()))
+				w.Header().Set(httpheaders.ContentLength, strconv.FormatInt(st.Size(), 10))
 				w.WriteHeader(http.StatusOK)
 			} else {
 				w.WriteHeader(http.StatusNotFound)
@@ -324,7 +377,7 @@ func Proxy(cmdCtx *CmdContext) error {
 			return
 		case http.MethodGet:
 			if st != nil {
-				w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", st.Size()))
+				w.Header().Set(httpheaders.ContentLength, strconv.FormatInt(st.Size(), 10))
 			}
 			fh, err := requestName.Open()
 			if err != nil {
@@ -348,20 +401,36 @@ func Proxy(cmdCtx *CmdContext) error {
 					if err := requestName.Remove(); err != nil {
 						l.Error("Could not remove partially written file", zap.Error(err))
 						w.WriteHeader(http.StatusInternalServerError)
-						w.Write([]byte(fmt.Sprintf("Internal Server Error (could not remove 0-byte file): %s", name)))
+						w.Write(
+							[]byte(
+								fmt.Sprintf(
+									"Internal Server Error (could not remove 0-byte file): %s",
+									name,
+								),
+							),
+						)
 						return
 					}
 				} else {
 					l.Debug("Forbidding upload erasing existing file")
 					w.WriteHeader(http.StatusForbidden)
-					w.Write([]byte(fmt.Sprintf("Forbidden (overwriting existing files not allowed): %s", name)))
+					w.Write(
+						[]byte(
+							fmt.Sprintf(
+								"Forbidden (overwriting existing files not allowed): %s",
+								name,
+							),
+						),
+					)
 					return
 				}
 			}
 			f, err := requestName.OpenFile(os.O_CREATE | os.O_WRONLY)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(fmt.Sprintf("Internal Server Error (could not open file): %s", name)))
+				w.Write(
+					[]byte(fmt.Sprintf("Internal Server Error (could not open file): %s", name)),
+				)
 				return
 			}
 			nbytes, err := io.Copy(f, r.Body)
@@ -374,7 +443,14 @@ func Proxy(cmdCtx *CmdContext) error {
 					l.Error("Could not remove partially written file", zap.Error(err))
 				}
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(fmt.Sprintf("Internal Server Error (could not write received file): %s", name)))
+				w.Write(
+					[]byte(
+						fmt.Sprintf(
+							"Internal Server Error (could not write received file): %s",
+							name,
+						),
+					),
+				)
 				return
 			}
 
@@ -382,7 +458,11 @@ func Proxy(cmdCtx *CmdContext) error {
 			if err != nil {
 				// If we can't stat the path after writing it, something has gone wrong.
 				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(fmt.Sprintf("Internal Server Error (could not stat new file): %s", name)))
+				w.Write(
+					[]byte(
+						fmt.Sprintf("Internal Server Error (could not stat new file): %s", name),
+					),
+				)
 				return
 			}
 			w.Header().Set(httpheaders.LastModified, st.ModTime().Format(http.TimeFormat))
