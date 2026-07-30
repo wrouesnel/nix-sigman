@@ -1,0 +1,12 @@
+- code: 1
+  key: GeneralError
+  message: General Error
+  http: 501
+  grpc: 0
+  desc: ''
+- code: 2
+  key: InvalidSignatures
+  message: Invalid Signatures
+  http: 404
+  grpc: 0
+  desc: ''

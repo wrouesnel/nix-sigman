@@ -45,10 +45,6 @@ type NixDBValidPaths struct {
 	Ca               *string `db:"ca"`
 }
 
-// NixCacheInfoName is the file which should be at the root of the output directory so
-// it works as an HTTP cache
-const NixCacheInfoName = "nix-cache-info"
-
 // Bundle copies a given item out of the Nix Store
 func Bundle(cmdCtx *CmdContext) error {
 	l := cmdCtx.logger
