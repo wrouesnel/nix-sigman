@@ -1,5 +1,7 @@
+![GitHub License](https://img.shields.io/github/license/wrouesnel/nix-sigman)
 [![Build and Test](https://github.com/wrouesnel/nix-sigman/actions/workflows/integration.yml/badge.svg)](https://github.com/wrouesnel/nix-sigman/actions/workflows/integration.yml)
 [![Coverage Status](https://coveralls.io/repos/github/wrouesnel/nix-sigman/badge.svg?branch=main)](https://coveralls.io/github/wrouesnel/nix-sigman?branch=main)
+![GitHub Release](https://img.shields.io/github/v/release/wrouesnel/nix-sigman)
 
 # nix-sigman
 
