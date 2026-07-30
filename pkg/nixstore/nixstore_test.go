@@ -8,9 +8,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 
 	"github.com/chigopher/pathlib"
+	"github.com/samber/lo"
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/nix-sigman/pkg/nixstore"
 	. "gopkg.in/check.v1"
@@ -55,21 +57,30 @@ func (n *NixStoreSuite) TestNarServingWorks(c *C) {
 	c.Assert(string(ninfoText), Equals, string(canonicalNarInfo))
 
 	// Serve the NAR file from the store
-	rdr, _, _, err := store.GetNar(wellKnownPath)
-	c.Assert(err, IsNil)
+	rdr, wr := io.Pipe()
 
-	// Hash it...
+	outputNarFile := lo.Must(storeDir.Join("comparison.nar").OpenFileMode(os.O_CREATE|os.O_WRONLY, os.FileMode(0644)))
+
+	sizeReader := io.TeeReader(rdr, outputNarFile)
+
 	h := sha256.New()
+	errp := new(error)
+	size := new(int64)
+	wg := new(sync.WaitGroup)
+	wg.Go(func() {
+		*size, *errp = io.Copy(h, sizeReader)
+	})
 
-	fmode, err := storeDir.Join("comparison.nar").OpenFileMode(os.O_CREATE|os.O_WRONLY, os.FileMode(0644))
+	// Get the NAR
+	err = store.GetNar(wr, &ninfo)
+	wr.CloseWithError(nil)
+	// Once we return all our pointers should be safely handled.
 	c.Assert(err, IsNil)
-
-	teer := io.TeeReader(rdr, fmode)
-	size, err := io.Copy(h, teer)
+	wg.Wait()
+	outputNarFile.Close()
 	c.Assert(err, IsNil)
-	c.Assert(uint64(size), Equals, ninfo.FileSize)
-
-	fmode.Close()
+	c.Assert(*errp, IsNil)
+	c.Assert(uint64(*size), Equals, ninfo.FileSize, Commentf("resulting nar did not match the supplied narinfo size: %v != %v", *size, ninfo.FileSize))
 
 	// Now hash the actual on-disk file and check its the same
 	canonicalNarRdr, err := storeDir.Join(ninfo.URL).Open()
@@ -79,7 +90,7 @@ func (n *NixStoreSuite) TestNarServingWorks(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(uint64(canonicalSize), Equals, ninfo.FileSize)
 
-	c.Assert(hex.EncodeToString(h.Sum(nil)), Equals, hex.EncodeToString(canonicalHash.Sum(nil)))
+	c.Assert(hex.EncodeToString(h.Sum(nil)), Equals, hex.EncodeToString(canonicalHash.Sum(nil)), Commentf("nar hashes fdid not match"))
 }
 
 // TestMissingNarInfoIsntFound check that searching a hash that definitely does not exist also works.

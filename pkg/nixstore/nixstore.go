@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -14,8 +15,8 @@ import (
 	"github.com/chigopher/pathlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/samber/lo"
+	"github.com/wrouesnel/go-nix/nar"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
-	"zombiezen.com/go/nix/nar"
 
 	_ "modernc.org/sqlite"
 )
@@ -35,9 +36,18 @@ func (e ErrNotFound) Error() string {
 	return fmt.Sprintf("not found: %s", e.HashName)
 }
 
+type ErrShortWrite struct {
+	Header       nar.Header
+	WrittenBytes int64
+}
+
+func (e ErrShortWrite) Error() string {
+	return fmt.Sprintf("too few bytes copied for nar header content: expected %v got %v", e.Header.Size, e.WrittenBytes)
+}
+
 type NixStore interface {
 	GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error)
-	GetNar(path string) (io.ReadCloser, *nixtypes.NarInfo, time.Time, error)
+	GetNar(w io.Writer, ninfo *nixtypes.NarInfo) error
 	GetStorePathByFileHash(fileHash string) (string, error)
 }
 
@@ -214,12 +224,8 @@ func (n *nixStore) GetStorePathByFileHash(fileHash string) (string, error) {
 	return nixPaths[0].Path, nil
 }
 
-func (n *nixStore) GetNar(path string) (io.ReadCloser, *nixtypes.NarInfo, time.Time, error) {
-	ninfo, registrationTime, err := n.GetNarInfo(path)
-	if err != nil {
-		return nil, nil, registrationTime, err
-	}
-
+// GetNar writes the NAR referenced by ninfo to the given io.Writer.
+func (n *nixStore) GetNar(w io.Writer, ninfo *nixtypes.NarInfo) error {
 	// Our expectation is n.root points to `/nix` or wherever `/nix` has been mounted.
 	// So our intepretation of nix paths should reflect this - namely we go one level up,
 	// and then use that as the base for what path we want to dump from the DB.
@@ -229,11 +235,31 @@ func (n *nixStore) GetNar(path string) (io.ReadCloser, *nixtypes.NarInfo, time.T
 	basePath, _ := strings.CutPrefix(ninfo.StorePath, n.storePath)
 	realPath := n.storeRoot.Join(basePath)
 
-	rdr, wr := io.Pipe()
-	go func() {
-		err := nar.DumpPath(wr, realPath.String())
-		wr.CloseWithError(err)
-	}()
+	writerFunc := func(w *nar.Writer, hdr *nar.Header, fspath string) error {
+		// Copy the file directly to the underlying stream (which will be a TCPConn usually)
+		// which will allow io.Copy to use splice/sendfile to avoid the user space transfer.
+		f, err := os.Open(n.storeRoot.Join(fspath).String())
+		if err != nil {
+			return err
+		}
 
-	return rdr, &ninfo, registrationTime, nil
+		// Discard the bytes from the NAR writer itself (which returns us a writer to use
+		// for the catch up.
+		underlyingWriter, err := w.Skip(hdr.Size)
+		if err != nil {
+			return err
+		}
+		// Let io.Copy pipe the file content directly to the writer
+		nBytes, err := io.Copy(underlyingWriter, f)
+		if nBytes < hdr.Size {
+			return &ErrShortWrite{
+				Header:       *hdr,
+				WrittenBytes: nBytes,
+			}
+		}
+		return err
+	}
+
+	err := nar.DumpPath(w, realPath.String(), nar.WithWriterFunc(writerFunc))
+	return err
 }
