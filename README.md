@@ -1,3 +1,6 @@
+[![Build and Test](https://github.com/wrouesnel/nix-sigman/actions/workflows/integration.yml/badge.svg)](https://github.com/wrouesnel/nix-sigman/actions/workflows/integration.yml)
+[![Coverage Status](https://coveralls.io/repos/github/wrouesnel/nix-sigman/badge.svg?branch=main)](https://coveralls.io/github/wrouesnel/nix-sigman?branch=main)
+
 # nix-sigman
 
 Simple tool for managing signatures of Nix NAR files when not part of the central
