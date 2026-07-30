@@ -1,6 +1,6 @@
 module github.com/wrouesnel/nix-sigman
 
-go 1.25.5
+go 1.26
 
 require (
 	github.com/1lann/countwriter v0.0.0-20160329163811-702ae82f0549
@@ -18,14 +18,17 @@ require (
 	github.com/julienschmidt/httprouter v1.3.0
 	github.com/labstack/gommon v0.4.2
 	github.com/magefile/mage v1.15.0
+	github.com/mailgun/multibuf v0.2.0
 	github.com/mholt/archiver v3.1.1+incompatible
 	github.com/mholt/archives v0.1.5
 	github.com/muesli/go-app-paths v0.2.2
 	github.com/ncruces/go-strftime v1.0.0
 	github.com/nix-community/go-nix v0.0.0-20250101154619-4bdde671e0a1
 	github.com/pkg/errors v0.9.1
+	github.com/restayway/rescode v1.0.2
 	github.com/samber/lo v1.52.0
 	github.com/spf13/afero v1.15.0
+	github.com/wrouesnel/go-nix v0.0.0-20260730122320-978b9a57a85f
 	github.com/wrouesnel/kongutil v0.0.0-20250331082405-8d531c9e23eb
 	github.com/wrouesnel/multihttp v1.0.0
 	github.com/wrouesnel/nix-http-cachefs v0.0.0-20251217024558-f63034e83d08
@@ -34,6 +37,7 @@ require (
 	go.withmatt.com/httpheaders v1.0.0
 	golang.org/x/mod v0.31.0
 	golang.org/x/sync v0.19.0
+	google.golang.org/grpc v1.56.3
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.40.1
@@ -52,11 +56,11 @@ require (
 	github.com/bodgit/sevenzip v1.6.1 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
-	github.com/deckarep/golang-set v1.8.0 // indirect
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/frankban/quicktest v1.14.6 // indirect
 	github.com/golang/mock v1.6.0 // indirect
+	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -69,7 +73,6 @@ require (
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
-	github.com/mailgun/multibuf v0.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/goveralls v0.0.12 // indirect
@@ -86,7 +89,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
-	github.com/segmentio/fasthash v1.0.3 // indirect
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/sorairolake/lzip-go v0.3.8 // indirect
 	github.com/spf13/cast v1.3.1 // indirect
@@ -96,7 +98,6 @@ require (
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
-	github.com/zyedidia/generic v1.2.1 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/exp v0.0.0-20251125195548-87e1e737ad39 // indirect
@@ -105,7 +106,7 @@ require (
 	golang.org/x/text v0.32.0 // indirect
 	golang.org/x/tools v0.39.0 // indirect
 	golang.org/x/tools/cmd/cover v0.1.0-deprecated // indirect
-	k8s.io/apimachinery v0.34.1 // indirect
+	google.golang.org/protobuf v1.36.5 // indirect
 	modernc.org/libc v1.67.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

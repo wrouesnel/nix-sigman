@@ -15,10 +15,10 @@ import (
 	"github.com/chigopher/pathlib"
 	"github.com/jmoiron/sqlx"
 	"github.com/mholt/archives"
+	"github.com/wrouesnel/go-nix/nar"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
 	_ "modernc.org/sqlite"
-	"zombiezen.com/go/nix/nar"
 )
 
 //nolint:gochecknoglobals

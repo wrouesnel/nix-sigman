@@ -720,6 +720,28 @@ func Test() error {
 	return nil
 }
 
+//// Benchmark runs test suite.
+//func Benchmark() error {
+//	mg.Deps(Tools)
+//	mg.Deps(GoGenerate)
+//
+//	// Run tests
+//	//coverProfiles := []string{}
+//	//nolint:perfsprint
+//	for _, pkg := range goPkgs() {
+//		//coverProfile := path.Join(coverageDir,
+//		//	fmt.Sprintf("%s%s", strings.ReplaceAll(pkg, "/", "-"), ".out"))
+//		//testErr :=
+//		sh.Run("go", "test", "-v", "-check.b")
+//		//if testErr != nil {
+//		//	return testErr
+//		//}
+//		//coverProfiles = append(coverProfiles, coverProfile)
+//	}
+//
+//	return nil
+//}
+
 // Coverage sums up the coverage profiles in .coverage. It does not clean up after itself or before.
 func Coverage() error {
 	// Clean up coverage directory

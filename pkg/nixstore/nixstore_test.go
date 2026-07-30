@@ -8,9 +8,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/chigopher/pathlib"
+	"github.com/samber/lo"
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/nix-sigman/pkg/nixstore"
 	. "gopkg.in/check.v1"
@@ -25,7 +28,18 @@ const wellKnownPath = "/nix/store/58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37"
 
 //const wellKnownPath = "/nix/store/8ranqggwk67p5mii3vimljcb9jr0nliq-nixexprs.tar.xz"
 
-type NixStoreSuite struct{}
+type NixStoreSuite struct {
+	nixDb        *pathlib.Path
+	nixStoreRoot *pathlib.Path
+	store        nixstore.NixStore
+}
+
+func (n *NixStoreSuite) SetUpSuite(c *C) {
+	var err error
+	n.nixDb, n.nixStoreRoot = nixstore.DefaultNixStore(pathlib.NewPath("", pathlib.PathWithAfero(afero.NewOsFs())))
+	n.store, err = nixstore.NewNixStore(n.nixDb, n.nixStoreRoot, nixstore.DefaultStorePath)
+	c.Assert(err, IsNil)
+}
 
 func createBinaryFromNix(c *C, nixPath string) string {
 	targetDir := c.MkDir()
@@ -39,11 +53,7 @@ func createBinaryFromNix(c *C, nixPath string) string {
 
 // TODO: make up a fake path
 func (n *NixStoreSuite) TestNarServingWorks(c *C) {
-	nixDb, nixStoreRoot := nixstore.DefaultNixStore(pathlib.NewPath("", pathlib.PathWithAfero(afero.NewOsFs())))
-	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, nixstore.DefaultStorePath)
-	c.Assert(err, IsNil)
-
-	ninfo, _, err := store.GetNarInfo(wellKnownPath)
+	ninfo, _, err := n.store.GetNarInfo(wellKnownPath)
 	c.Assert(err, IsNil)
 	ninfoText, err := ninfo.MarshalText()
 	c.Assert(err, IsNil)
@@ -55,21 +65,30 @@ func (n *NixStoreSuite) TestNarServingWorks(c *C) {
 	c.Assert(string(ninfoText), Equals, string(canonicalNarInfo))
 
 	// Serve the NAR file from the store
-	rdr, _, _, err := store.GetNar(wellKnownPath)
-	c.Assert(err, IsNil)
+	rdr, wr := io.Pipe()
 
-	// Hash it...
+	outputNarFile := lo.Must(storeDir.Join("comparison.nar").OpenFileMode(os.O_CREATE|os.O_WRONLY, os.FileMode(0644)))
+
+	sizeReader := io.TeeReader(rdr, outputNarFile)
+
 	h := sha256.New()
+	errp := new(error)
+	size := new(int64)
+	wg := new(sync.WaitGroup)
+	wg.Go(func() {
+		*size, *errp = io.Copy(h, sizeReader)
+	})
 
-	fmode, err := storeDir.Join("comparison.nar").OpenFileMode(os.O_CREATE|os.O_WRONLY, os.FileMode(0644))
+	// Get the NAR
+	err = n.store.GetNar(wr, &ninfo)
+	wr.CloseWithError(nil)
+	// Once we return all our pointers should be safely handled.
 	c.Assert(err, IsNil)
-
-	teer := io.TeeReader(rdr, fmode)
-	size, err := io.Copy(h, teer)
+	wg.Wait()
+	outputNarFile.Close()
 	c.Assert(err, IsNil)
-	c.Assert(uint64(size), Equals, ninfo.FileSize)
-
-	fmode.Close()
+	c.Assert(*errp, IsNil)
+	c.Assert(uint64(*size), Equals, ninfo.FileSize, Commentf("resulting nar did not match the supplied narinfo size: %v != %v", *size, ninfo.FileSize))
 
 	// Now hash the actual on-disk file and check its the same
 	canonicalNarRdr, err := storeDir.Join(ninfo.URL).Open()
@@ -79,7 +98,19 @@ func (n *NixStoreSuite) TestNarServingWorks(c *C) {
 	c.Assert(err, IsNil)
 	c.Assert(uint64(canonicalSize), Equals, ninfo.FileSize)
 
-	c.Assert(hex.EncodeToString(h.Sum(nil)), Equals, hex.EncodeToString(canonicalHash.Sum(nil)))
+	c.Assert(hex.EncodeToString(h.Sum(nil)), Equals, hex.EncodeToString(canonicalHash.Sum(nil)), Commentf("nar hashes fdid not match"))
+}
+
+func (n *NixStoreSuite) BenchmarkNarFileGeneration(c *C) {
+	ninfo, _, err := n.store.GetNarInfo(wellKnownPath)
+	c.Assert(err, IsNil)
+
+	outputDir := c.MkDir()
+	for i := 0; i < c.N; i++ {
+		f := lo.Must(os.Create(filepath.Join(outputDir, fmt.Sprintf("%v.nar", i))))
+		err := n.store.GetNar(f, &ninfo)
+		c.Assert(err, IsNil)
+	}
 }
 
 // TestMissingNarInfoIsntFound check that searching a hash that definitely does not exist also works.

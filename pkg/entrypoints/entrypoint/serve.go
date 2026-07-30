@@ -313,7 +313,7 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig
 			return
 		}
 
-		rdr, ninfo, registrationTime, err := store.GetNar(pathInStore)
+		ninfo, registrationTime, err := store.GetNarInfo(pathInStore)
 		lastModified := registrationTime
 		if err != nil {
 			if _, found := errors.AsType[*nixstore.ErrNotFound](err); found {
@@ -344,12 +344,19 @@ func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig
 		// Binaries are immutable.
 		w.Header().Set(httpheaders.CacheControl, "public, immutable")
 
-		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodHead {
 			// HEAD - no bodyresponse
+			w.WriteHeader(http.StatusOK)
 			return
 		}
-		io.Copy(w, rdr)
+
+		// GET request - need to write a NAR file
+		err = store.GetNar(w, &ninfo)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf("internal server error: %s %s\n", name, err.Error())))
+			return
+		}
 		return
 	}
 }

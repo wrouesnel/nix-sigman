@@ -86,14 +86,14 @@ var CLI struct {
 	Derivations  DerivationsConfig  `cmd:"" help:"Manipulate derivations"`
 	Realizations RealizationsConfig `cmd:"" help:"Manipulate binary packages"`
 	Proxy        ProxyConfig        `cmd:"" help:"Serve a binary cache with resigning"`
-	Serve ServeConfig `cmd:"" help:"Serve a local nix store"`
+	Serve        ServeConfig        `cmd:"" help:"Serve a local nix store"`
 	NewKey       NewKeyConfig       `cmd:"" help:"Generate a new signing keypair for the current user"`
 }
 
 // Entrypoint is the real application entrypoint. This structure allows test packages to E2E-style tests invoking commmands
 // as though they are on the command line, but using built-in coverage tools. Stub-main under the `cmd` package calls this
 // function.
-func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
+func Entrypoint(args []string, stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 
@@ -109,10 +109,16 @@ func Entrypoint(stdIn io.ReadCloser, stdOut io.Writer, stdErr io.Writer) int {
 
 	// Command line parsing can now happen
 	vars := kong.Vars{"version": version.Version}
-	ctx := kong.Parse(&CLI,
+
+	parser, err := kong.New(&CLI,
 		kong.DefaultEnvars(version.Name),
 		kong.Description(version.Description),
 		kong.Configuration(kongutil.Hybrid, configDirs...), vars)
+	if err != nil {
+		panic(err)
+	}
+	ctx, err := parser.Parse(args)
+	parser.FatalIfErrorf(err)
 
 	// Initialize logging as soon as possible
 	logConfig := zap.NewProductionConfig()
