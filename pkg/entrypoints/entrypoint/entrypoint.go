@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os/signal"
+	"runtime/pprof"
 	"syscall"
 
 	"github.com/alecthomas/kong"
@@ -37,6 +38,9 @@ var CLI struct {
 		Level  string `help:"logging level" default:"info"`
 		Format string `help:"logging format (${enum})" enum:"console,json" default:"console"`
 	} `embed:"" prefix:"log-"`
+
+	CpuProfile           bool   `default:"false"`
+	CpuProfileOutputPath string `default:"${name}.cpu.pprof" help:"CPU Profiling Output Path"`
 
 	FsBackend string `help:"Filesystem backend for the binary cache" enum:"os,s3,nix-http-cache" default:"os"`
 	FsOpts    string `help:"Additional options for the filesystem handler" default:""`
@@ -108,7 +112,10 @@ func Entrypoint(args []string, stdIn io.ReadCloser, stdOut io.Writer, stdErr io.
 	}
 
 	// Command line parsing can now happen
-	vars := kong.Vars{"version": version.Version}
+	vars := kong.Vars{
+		"version": version.Version,
+		"name":    version.Name,
+	}
 
 	parser, err := kong.New(&CLI,
 		kong.DefaultEnvars(version.Name),
@@ -136,6 +143,19 @@ func Entrypoint(args []string, stdIn io.ReadCloser, stdOut io.Writer, stdErr io.
 		// Error unhandled since this is a very early failure
 		_, _ = io.WriteString(stdErr, "Failure while building logger")
 		return 1
+	}
+
+	if CLI.CpuProfile {
+		logger.Info("Writing CPU profile", zap.String("filename", CLI.CpuProfileOutputPath))
+		f, err := os.Create(CLI.CpuProfileOutputPath)
+		if err != nil {
+			logger.Fatal("Could not create CPU profile output", zap.String("filename", CLI.CpuProfileOutputPath))
+		}
+		defer f.Close() // error handling omitted for example
+		if err := pprof.StartCPUProfile(f); err != nil {
+			logger.Fatal("Could not start CPU profile: ", zap.Error(err))
+		}
+		defer pprof.StopCPUProfile()
 	}
 
 	logger.Debug("Configuring signal handling")
