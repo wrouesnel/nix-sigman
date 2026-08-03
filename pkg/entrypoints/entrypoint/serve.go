@@ -16,7 +16,6 @@ import (
 	lzap "github.com/MadAppGang/httplog/zap"
 	"github.com/chigopher/pathlib"
 	mapset "github.com/deckarep/golang-set/v2"
-	"github.com/julienschmidt/httprouter"
 	"github.com/samber/lo"
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/multihttp"
@@ -39,6 +38,7 @@ type ServeConfig struct {
 	WantMassQuery             bool          `help:"Set the WantMassQuery flag" default:"true"`
 	RequiredSignatures        []string      `help:"Return 404 for narinfo if named signatures are not valid on the NARinfo file after resigning"`
 	NarInfoFreshDuration      time.Duration `help:"Default cache-control to put on NARinfo file responses" default:"0s"`
+	ExtendedMetadataSupport   bool          `help:"Add support for query parameters to return additional metadata" default:"false"`
 	//CacheEnabled              bool     `help:"Enable binary caching"`
 	//CacheFsBackend            string   `help:"Filesystem backend for caching system" default:"os"`
 	//CacheFsOpts               string   `help:"Filesystem backend optional config" default:""`
@@ -120,22 +120,22 @@ func Serve(cmdCtx *CmdContext) error {
 		}
 	}
 
-	handlerConfig := &NixHandlerConfig{
+	handlerConfig := &NixHandler{
+		Logger:        l,
 		StorePath:     storePath,
 		WantMassQuery: CLI.Serve.WantMassQuery,
 		Priority:      CLI.Serve.Priority,
 		RequiredSignatures: lo.FilterSliceToMap(publicKeys, func(item nixtypes.NamedPublicKey) (string, nixtypes.NamedPublicKey, bool) {
 			return item.KeyName, item, requiredSigs.Contains(item.KeyName)
 		}),
-		StartTime:            startTime,
-		NarInfoFreshDuration: CLI.Serve.NarInfoFreshDuration,
+		StartTime:               startTime,
+		NarInfoFreshDuration:    CLI.Serve.NarInfoFreshDuration,
+		ExtendedMetadataSupport: CLI.Serve.ExtendedMetadataSupport,
+		Signers:                 signers,
+		Store:                   store,
 	}
-	handler := NixHandler(l, store, handlerConfig, signers)
 
 	l.Info("Starting HTTP server")
-	router := httprouter.New()
-	router.GET("/*name", handler)
-	router.HEAD("/*name", handler)
 
 	logger := httplog.LoggerWithConfig(
 		httplog.LoggerConfig{
@@ -145,7 +145,7 @@ func Serve(cmdCtx *CmdContext) error {
 	)
 
 	webCtx, webCancel := context.WithCancel(cmdCtx.ctx)
-	listeners, errCh, listenerErr := multihttp.Listen(CLI.Serve.Listen, logger(router))
+	listeners, errCh, listenerErr := multihttp.Listen(CLI.Serve.Listen, logger(handlerConfig))
 	if listenerErr != nil {
 		l.Error("Error setting up listeners", zap.Error(listenerErr))
 		webCancel()
@@ -183,7 +183,8 @@ WantMassQuery: %s
 Priority: %d
 `
 
-type NixHandlerConfig struct {
+type NixHandler struct {
+	Logger *zap.Logger
 	// Nix Cache Info parameters
 	StorePath     string
 	WantMassQuery bool
@@ -193,170 +194,189 @@ type NixHandlerConfig struct {
 
 	StartTime time.Time
 
-	NarInfoFreshDuration time.Duration
+	NarInfoFreshDuration    time.Duration
+	ExtendedMetadataSupport bool
+
+	Signers resigning.ConditionalResigners
+	Store   nixstore.NixStore
 }
 
-// NixHandler implements the Nix HTTP cache handler. nixStoreRoot is used to set a LastModifiedTime for files in the store
-// corresponding to if the directory has been modified.
-func NixHandler(l *zap.Logger, store nixstore.NixStore, config *NixHandlerConfig, signers resigning.ConditionalResigners) httprouter.Handle {
-	nixCacheInfoPath := fmt.Sprintf("/%s", NixCacheInfoName)
+func (n *NixHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Handle both GET and HEAD.
+	defer r.Body.Close()
 
-	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
-		// Handle both GET and HEAD.
-		defer r.Body.Close()
-		name := p.ByName("name")
+	_, name, _ := strings.Cut(r.URL.Path, "/")
 
-		// Handle the cache info response
-		if name == nixCacheInfoPath {
-			cacheInfoResp := []byte(fmt.Sprintf(NixCacheInfoTemplate, config.StorePath, lo.Ternary(config.WantMassQuery, "1", "0"), config.Priority))
+	// Handle the cache info response
+	if name == NixCacheInfoName {
+		cacheInfoResp := []byte(fmt.Sprintf(NixCacheInfoTemplate, n.StorePath, lo.Ternary(n.WantMassQuery, "1", "0"), n.Priority))
 
-			w.Header().Set(httpheaders.ContentType, "text/x-nix-cache-info")
-			w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(cacheInfoResp)))
-			w.Header().Set(httpheaders.LastModified, config.StartTime.Format(http.TimeFormat))
+		w.Header().Set(httpheaders.ContentType, "text/x-nix-cache-info")
+		w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(cacheInfoResp)))
+		w.Header().Set(httpheaders.LastModified, n.StartTime.Format(http.TimeFormat))
 
-			w.WriteHeader(http.StatusOK)
-			if r.Method == http.MethodHead {
-				// HEAD - no body response
-				return
-			}
-			io.Copy(w, bytes.NewReader(cacheInfoResp))
-			return
-		}
-
-		if strings.HasSuffix(name, ".narinfo") {
-			ninfo, registrationTime, err := store.GetNarInfo(name)
-			if err != nil {
-				if _, found := errors.AsType[*nixstore.ErrNotFound](err); found {
-					w.WriteHeader(http.StatusNotFound)
-					w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
-					return
-				}
-				w.WriteHeader(http.StatusInternalServerError)
-				w.Write([]byte(fmt.Sprintf("error: %s\n", name)))
-				return
-			}
-
-			if signers != nil {
-				if _, err := signers.MaybeResign(l, &ninfo); err != nil {
-					l.Warn("Signing Error", zap.String("error", err.Error()))
-				}
-			}
-
-			if config.RequiredSignatures != nil {
-				if len(config.RequiredSignatures) > 0 {
-					verified := false
-					for _, publicKey := range config.RequiredSignatures {
-						if verified, _ = ninfo.Verify(publicKey); verified {
-							break
-						}
-					}
-					if !verified {
-						w.WriteHeader(http.StatusNotFound)
-						w.Write([]byte(fmt.Sprintf("not found (invalid signatures): %s\n", name)))
-						return
-					}
-				}
-			}
-
-			content, err := ninfo.MarshalText()
-			w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(content)))
-
-			lastModified := lo.Ternary(registrationTime.After(config.StartTime), registrationTime, config.StartTime)
-			w.Header().Set(httpheaders.LastModified, lastModified.Format(http.TimeFormat))
-			w.Header().Set(httpheaders.ContentType, "text/x-nix-narinfo")
-			if ifModifiedSinceHeader := r.Header.Get(httpheaders.IfModifiedSince); ifModifiedSinceHeader != "" {
-				ifModifiedSince, err := time.Parse(http.TimeFormat, ifModifiedSinceHeader)
-				if err == nil {
-					if lastModified.Before(ifModifiedSince) {
-						// File has not been modified (or program not restarted) compared to cache value.
-						// Return not modified.
-						w.WriteHeader(http.StatusNotModified)
-						return
-					}
-				}
-				// Otherwise just proceed as normal
-			}
-			// When returning a response, set cache-control headers.
-			// NARinfo files can change due to resigning changes.
-			cacheDirectives := []string{"public"}
-			if config.NarInfoFreshDuration > 0 {
-				cacheDirectives = append(cacheDirectives, "must-revalidate",
-					fmt.Sprintf("max-age=%v", int(config.NarInfoFreshDuration.Seconds())))
-			} else {
-				cacheDirectives = append(cacheDirectives, "no-cache")
-			}
-			w.Header().Set(httpheaders.CacheControl, strings.Join(cacheDirectives, ", "))
-			w.WriteHeader(http.StatusOK)
-			if r.Method == http.MethodHead {
-				// HEAD - no body response
-				return
-			}
-			w.Write(content)
-			return
-		}
-
-		// Treat as a nar file request
-		hashName, _, _ := strings.Cut(path.Base(name), ".")
-		pathInStore, err := store.GetStorePathByFileHash(hashName)
-		if err != nil {
-			if _, found := errors.AsType[*nixstore.ErrNotFound](err); found {
-				w.WriteHeader(http.StatusNotFound)
-				w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
-				return
-			} else if _, found := errors.AsType[*nixstore.ErrInvalid](err); found {
-				w.WriteHeader(http.StatusNotFound)
-				w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
-				return
-			}
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(fmt.Sprintf("error: %s\n", name)))
-			return
-		}
-
-		ninfo, registrationTime, err := store.GetNarInfo(pathInStore)
-		lastModified := registrationTime
-		if err != nil {
-			if _, found := errors.AsType[*nixstore.ErrNotFound](err); found {
-				w.WriteHeader(http.StatusNotFound)
-				w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
-				return
-			}
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(fmt.Sprintf("error: %s\n", name)))
-			return
-		}
-		w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", ninfo.FileSize))
-		w.Header().Set(httpheaders.LastModified, registrationTime.Format(http.TimeFormat))
-		w.Header().Set(httpheaders.Etag, ninfo.FileHash.String())
-		if ifModifiedSinceHeader := r.Header.Get(httpheaders.IfModifiedSince); ifModifiedSinceHeader != "" {
-			ifModifiedSince, err := time.Parse(http.TimeFormat, ifModifiedSinceHeader)
-			if err == nil {
-				if lastModified.Before(ifModifiedSince) {
-					// File has not been modified (or program not restarted) compared to cache value.
-					// Return not modified.
-					w.WriteHeader(http.StatusNotModified)
-					return
-				}
-			}
-			// Otherwise just proceed as normal
-		}
-		// When returning a response, set cache-control headers.
-		// Binaries are immutable.
-		w.Header().Set(httpheaders.CacheControl, "public, immutable")
-
+		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodHead {
-			// HEAD - no bodyresponse
-			w.WriteHeader(http.StatusOK)
+			// HEAD - no body response
 			return
 		}
-
-		// GET request - need to write a NAR file
-		err = store.GetNar(w, &ninfo)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte(fmt.Sprintf("internal server error: %s %s\n", name, err.Error())))
-			return
-		}
+		io.Copy(w, bytes.NewReader(cacheInfoResp))
 		return
 	}
+
+	if strings.HasSuffix(name, ".narinfo") {
+		ninfo, registrationTime, err := n.Store.GetNarInfo(name)
+		if err != nil {
+			if _, found := errors.AsType[*nixstore.ErrNotFound](err); found {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
+				return
+			}
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf("error: %s\n", name)))
+			return
+		}
+		// Return the NARinfo for this URL instead
+		n.handleNARInfo(w, r, &ninfo, registrationTime)
+		return
+	}
+
+	// Treat as a nar file request
+	hashName, _, _ := strings.Cut(path.Base(name), ".")
+	pathInStore, err := n.Store.GetStorePathByFileHash(hashName)
+	if err != nil {
+		if _, found := errors.AsType[*nixstore.ErrNotFound](err); found {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
+			return
+		} else if _, found := errors.AsType[*nixstore.ErrInvalid](err); found {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprintf("error: %s\n", name)))
+		return
+	}
+
+	ninfo, registrationTime, err := n.Store.GetNarInfo(pathInStore)
+	lastModified := registrationTime
+	if err != nil {
+		if _, found := errors.AsType[*nixstore.ErrNotFound](err); found {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprintf("error: %s\n", name)))
+		return
+	}
+
+	if n.ExtendedMetadataSupport {
+		if r.URL.Query().Get("lookup-narinfo") == "1" {
+			// Return the NARinfo for this URL instead
+			n.handleNARInfo(w, r, &ninfo, registrationTime)
+			return
+		}
+	}
+
+	w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", ninfo.FileSize))
+	w.Header().Set(httpheaders.LastModified, registrationTime.Format(http.TimeFormat))
+	w.Header().Set(httpheaders.Etag, ninfo.FileHash.String())
+	if ifModifiedSinceHeader := r.Header.Get(httpheaders.IfModifiedSince); ifModifiedSinceHeader != "" {
+		ifModifiedSince, err := time.Parse(http.TimeFormat, ifModifiedSinceHeader)
+		if err == nil {
+			if lastModified.Before(ifModifiedSince) {
+				// File has not been modified (or program not restarted) compared to cache value.
+				// Return not modified.
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+		}
+		// Otherwise just proceed as normal
+	}
+	// When returning a response, set cache-control headers.
+	// Binaries are immutable.
+	w.Header().Set(httpheaders.CacheControl, "public, immutable")
+
+	if r.Method == http.MethodHead {
+		// HEAD - no bodyresponse
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// GET request - need to write a NAR file
+	err = n.Store.GetNar(w, &ninfo)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprintf("internal server error: %s %s\n", name, err.Error())))
+		return
+	}
+	return
+}
+
+// handleNARInfo formats a NARinfo file for serving too a client
+func (n *NixHandler) handleNARInfo(w http.ResponseWriter, r *http.Request, ninfo *nixtypes.NarInfo, registrationTime time.Time) {
+	if n.Signers != nil {
+		if _, err := n.Signers.MaybeResign(n.Logger, ninfo); err != nil {
+			n.Logger.Warn("Signing Error", zap.String("error", err.Error()))
+		}
+	}
+
+	if n.RequiredSignatures != nil {
+		if len(n.RequiredSignatures) > 0 {
+			verified := false
+			for _, publicKey := range n.RequiredSignatures {
+				if verified, _ = ninfo.Verify(publicKey); verified {
+					break
+				}
+			}
+			if !verified {
+				w.WriteHeader(http.StatusNotFound)
+				w.Write([]byte(fmt.Sprintf("not found (invalid signatures): %s\n", ninfo.NixHash())))
+				return
+			}
+		}
+	}
+
+	content, err := ninfo.MarshalText()
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprintf("error: %s\n", ninfo.NixHash())))
+		return
+	}
+	w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", len(content)))
+
+	lastModified := lo.Ternary(registrationTime.After(n.StartTime), registrationTime, n.StartTime)
+	w.Header().Set(httpheaders.LastModified, lastModified.Format(http.TimeFormat))
+	w.Header().Set(httpheaders.ContentType, "text/x-nix-narinfo")
+	if ifModifiedSinceHeader := r.Header.Get(httpheaders.IfModifiedSince); ifModifiedSinceHeader != "" {
+		ifModifiedSince, err := time.Parse(http.TimeFormat, ifModifiedSinceHeader)
+		if err == nil {
+			if lastModified.Before(ifModifiedSince) {
+				// File has not been modified (or program not restarted) compared to cache value.
+				// Return not modified.
+				w.WriteHeader(http.StatusNotModified)
+				return
+			}
+		}
+		// Otherwise just proceed as normal
+	}
+	// When returning a response, set cache-control headers.
+	// NARinfo files can change due to resigning changes.
+	cacheDirectives := []string{"public"}
+	if n.NarInfoFreshDuration > 0 {
+		cacheDirectives = append(cacheDirectives, "must-revalidate",
+			fmt.Sprintf("max-age=%v", int(n.NarInfoFreshDuration.Seconds())))
+	} else {
+		cacheDirectives = append(cacheDirectives, "no-cache")
+	}
+	w.Header().Set(httpheaders.CacheControl, strings.Join(cacheDirectives, ", "))
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		// HEAD - no body response
+		return
+	}
+	w.Write(content)
+	return
 }
