@@ -202,7 +202,7 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) 
 
 	slices.Sort(refs)
 
-	url := fmt.Sprintf("nar/%s.nar", hashName)
+	url := fmt.Sprintf("nar/%s.nar", trimmed)
 	switch n.nixStoreOptions.narURLFormatConvention {
 	case NarURLFormatConventionFilehash:
 		url = fmt.Sprintf("nar/%s.nar", fileHash.Hash.String())
