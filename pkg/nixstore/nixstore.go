@@ -90,11 +90,18 @@ type NixStoreOption func(opt *nixStoreOptions)
 
 type nixStoreOptions struct {
 	narURLFormatConvention NarURLFormatConvention
+	noPerformanceCheck     bool
 }
 
 func WithNARURLFormatConvention(conv NarURLFormatConvention) NixStoreOption {
 	return func(opt *nixStoreOptions) {
 		opt.narURLFormatConvention = conv
+	}
+}
+
+func WithNoPerformanceCheck(value bool) NixStoreOption {
+	return func(opt *nixStoreOptions) {
+		opt.noPerformanceCheck = value
 	}
 }
 
@@ -127,6 +134,20 @@ func NewNixStore(nixDb *pathlib.Path, storeRoot *pathlib.Path, storePath string,
 	hashingAlg := "sha256"
 	if len(nixPaths) > 0 {
 		hashingAlg, _, _ = strings.Cut(nixPaths[0].Hash, ":")
+	}
+
+	// If fileHash querying is selected, check that the database has an index
+	// for the fileHash by checking the query plan is _not_ just a scan
+	if options.narURLFormatConvention == NarURLFormatConventionFilehash && !options.noPerformanceCheck {
+		plan := make([]ExplainQueryPlan, 0)
+		if err := db.Select(&plan, fmt.Sprintf("EXPLAIN QUERY PLAN %s", sqlLookupPathByFileHash), ""); err != nil {
+			return nil, err
+		}
+		if len(plan) == 1 {
+			if plan[0].Detail == "SCAN ValidPaths" {
+				return nil, errors.New("filehash NAR URL format but no index for hash found in Nix DB. Add an index: CREATE INDEX IndexValidPathsHash ON ValidPaths(hash);")
+			}
+		}
 	}
 
 	return &nixStore{
@@ -202,7 +223,7 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) 
 
 	slices.Sort(refs)
 
-	url := fmt.Sprintf("nar/%s.nar", trimmed)
+	url := fmt.Sprintf("nar/%s.nar", filepath.Base(nixPath.Path))
 	switch n.nixStoreOptions.narURLFormatConvention {
 	case NarURLFormatConventionFilehash:
 		url = fmt.Sprintf("nar/%s.nar", fileHash.Hash.String())
@@ -291,12 +312,19 @@ func (n *nixStore) GetNar(w io.Writer, ninfo *nixtypes.NarInfo) error {
 	realPath := n.storeRoot.Join(basePath)
 
 	writerFunc := func(w *nar.Writer, hdr *nar.Header, fspath string) error {
+		// go-nix at one point couldn't handle a 0 byte file. But also, a 0-byte
+		// file is pointless to spend cycles opening anyway just to skip -
+		if hdr.Size == 0 {
+			return nil
+		}
+
 		// Copy the file directly to the underlying stream (which will be a TCPConn usually)
 		// which will allow io.Copy to use splice/sendfile to avoid the user space transfer.
 		f, err := os.Open(n.storeRoot.Join(fspath).String())
 		if err != nil {
 			return err
 		}
+		defer f.Close()
 
 		// Discard the bytes from the NAR writer itself (which returns us a writer to use
 		// for the catch up.
