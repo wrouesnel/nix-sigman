@@ -1,3 +1,4 @@
+//go:generate go tool go-enum --marshal --names --values
 package nixstore
 
 import (
@@ -48,6 +49,8 @@ func (e ErrShortWrite) Error() string {
 type NixStore interface {
 	GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error)
 	GetNar(w io.Writer, ninfo *nixtypes.NarInfo) error
+	// GetStorePathByURL presuming the supplied string is following the convention
+	GetStorePathByURL(urlPath string) (string, error)
 	GetStorePathByFileHash(fileHash string) (string, error)
 }
 
@@ -75,13 +78,38 @@ const DefaultNixDBPath = "nix/var/nix/db/db.sqlite"
 const DefaultNixStoreRoot = "nix/store"
 const DefaultStorePath = "/nix/store"
 
+// NarURLFormatConvention defines the convention to use for NAR URLs served by
+// the server.
+// ENUM(
+// nixhash  // Use the Nix hash path for lookups
+// filehash // Use the filehash only. Slow if an index on the hash is not included
+// )
+type NarURLFormatConvention string
+
+type NixStoreOption func(opt *nixStoreOptions)
+
+type nixStoreOptions struct {
+	narURLFormatConvention NarURLFormatConvention
+}
+
+func WithNARURLFormatConvention(conv NarURLFormatConvention) NixStoreOption {
+	return func(opt *nixStoreOptions) {
+		opt.narURLFormatConvention = conv
+	}
+}
+
 func DefaultNixStore(root *pathlib.Path) (db *pathlib.Path, storeRoot *pathlib.Path) {
 	db = root.Join(DefaultNixDBPath)
 	storeRoot = root.Join(DefaultNixStoreRoot)
 	return
 }
 
-func NewNixStore(nixDb *pathlib.Path, storeRoot *pathlib.Path, storePath string) (NixStore, error) {
+func NewNixStore(nixDb *pathlib.Path, storeRoot *pathlib.Path, storePath string, opts ...NixStoreOption) (NixStore, error) {
+	options := nixStoreOptions{}
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	db, err := sqlx.Open("sqlite", fmt.Sprintf("file:%s?mode=ro", nixDb.String()))
 	if err != nil {
 		return nil, err
@@ -102,11 +130,12 @@ func NewNixStore(nixDb *pathlib.Path, storeRoot *pathlib.Path, storePath string)
 	}
 
 	return &nixStore{
-		nixDb:      nixDb,
-		storeRoot:  storeRoot,
-		storePath:  storePath,
-		db:         db,
-		hashingAlg: hashingAlg,
+		nixDb:           nixDb,
+		storeRoot:       storeRoot,
+		storePath:       storePath,
+		db:              db,
+		hashingAlg:      hashingAlg,
+		nixStoreOptions: options,
 	}, nil
 }
 
@@ -120,6 +149,8 @@ type nixStore struct {
 	db        *sqlx.DB
 	// hashingAlg is the detected file hashing algorithm from the database
 	hashingAlg string
+	// nix store behavior options from users
+	nixStoreOptions
 }
 
 func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) {
@@ -171,10 +202,18 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) 
 
 	slices.Sort(refs)
 
+	url := fmt.Sprintf("nar/%s.nar", hashName)
+	switch n.nixStoreOptions.narURLFormatConvention {
+	case NarURLFormatConventionFilehash:
+		url = fmt.Sprintf("nar/%s.nar", fileHash.Hash.String())
+	default:
+		// No change from store default
+	}
+
 	// Return the narinfo
 	return nixtypes.NarInfo{
 		StorePath:   nixPath.Path,
-		URL:         fmt.Sprintf("nar/%s.nar", fileHash.Hash.String()),
+		URL:         url,
 		Compression: "none",
 		FileHash:    fileHash,
 		FileSize:    nixPath.NarSize,
@@ -186,6 +225,22 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) 
 		CA:          nixPath.Ca.V,
 		Extra:       map[string]string{},
 	}, registrationTime, nil
+}
+
+// GetStorePathByURL returns a store path presuming that the supplied URL convention of
+// the store is in effect.
+func (n *nixStore) GetStorePathByURL(urlPath string) (string, error) {
+	switch n.nixStoreOptions.narURLFormatConvention {
+	case NarURLFormatConventionFilehash:
+		return n.GetStorePathByFileHash(urlPath)
+	default:
+		// format is nar/<nixhash> - so easy
+		ninfo, _, err := n.GetNarInfo(urlPath)
+		if err != nil {
+			return "", err
+		}
+		return ninfo.StorePath, nil
+	}
 }
 
 // GetStorePathByFileHash returns a store path by its filehash. This function is only likely

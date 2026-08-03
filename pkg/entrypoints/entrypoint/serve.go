@@ -29,16 +29,17 @@ import (
 
 type ServeConfig struct {
 	resigning.ResigningConfig `embed:""`
-	Listen                    []string      `help:"Listen addresses" default:"tcp://127.0.0.1:8081"`
-	Root                      string        `help:"Root to search for a nix store" default:"/"`
-	NixDB                     *string       `help:"Override the database location"`
-	StoreRoot                 *string       `help:"Override the store root (but not the store path)"`
-	StorePath                 string        `help:"Nix store path to advertise (usually should not be changed)" default:"/nix/store"`
-	Priority                  int           `help:"Nix store priority - lower means greater" default:"40"`
-	WantMassQuery             bool          `help:"Set the WantMassQuery flag" default:"true"`
-	RequiredSignatures        []string      `help:"Return 404 for narinfo if named signatures are not valid on the NARinfo file after resigning"`
-	NarInfoFreshDuration      time.Duration `help:"Default cache-control to put on NARinfo file responses" default:"0s"`
-	ExtendedMetadataSupport   bool          `help:"Add support for query parameters to return additional metadata" default:"false"`
+	Listen                    []string                        `help:"Listen addresses" default:"tcp://127.0.0.1:8081"`
+	Root                      string                          `help:"Root to search for a nix store" default:"/"`
+	NixDB                     *string                         `help:"Override the database location"`
+	StoreRoot                 *string                         `help:"Override the store root (but not the store path)"`
+	StorePath                 string                          `help:"Nix store path to advertise (usually should not be changed)" default:"/nix/store"`
+	Priority                  int                             `help:"Nix store priority - lower means greater" default:"40"`
+	WantMassQuery             bool                            `help:"Set the WantMassQuery flag" default:"true"`
+	RequiredSignatures        []string                        `help:"Return 404 for narinfo if named signatures are not valid on the NARinfo file after resigning"`
+	NarInfoFreshDuration      time.Duration                   `help:"Default cache-control to put on NARinfo file responses" default:"0s"`
+	ExtendedMetadataSupport   bool                            `help:"Add support for query parameters to return additional metadata" default:"false"`
+	NarPathFormat             nixstore.NarURLFormatConvention `help:"Format convention to use for the NAR URLs" default:"nixhash"`
 	//CacheEnabled              bool     `help:"Enable binary caching"`
 	//CacheFsBackend            string   `help:"Filesystem backend for caching system" default:"os"`
 	//CacheFsOpts               string   `help:"Filesystem backend optional config" default:""`
@@ -82,7 +83,7 @@ func Serve(cmdCtx *CmdContext) error {
 		zap.String("store_root", nixStoreRoot.String()),
 		zap.String("store_path", storePath))
 
-	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, storePath)
+	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, storePath, nixstore.WithNARURLFormatConvention(CLI.Serve.NarPathFormat))
 	if err != nil {
 		l.Error("Error during server startup", zap.Error(err))
 		return err
@@ -243,7 +244,7 @@ func (n *NixHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Treat as a nar file request
 	hashName, _, _ := strings.Cut(path.Base(name), ".")
-	pathInStore, err := n.Store.GetStorePathByFileHash(hashName)
+	pathInStore, err := n.Store.GetStorePathByURL(hashName)
 	if err != nil {
 		if _, found := errors.AsType[*nixstore.ErrNotFound](err); found {
 			w.WriteHeader(http.StatusNotFound)
