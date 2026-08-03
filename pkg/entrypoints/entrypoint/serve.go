@@ -40,6 +40,7 @@ type ServeConfig struct {
 	NarInfoFreshDuration      time.Duration                   `help:"Default cache-control to put on NARinfo file responses" default:"0s"`
 	ExtendedMetadataSupport   bool                            `help:"Add support for query parameters to return additional metadata" default:"false"`
 	NarPathFormat             nixstore.NarURLFormatConvention `help:"Format convention to use for the NAR URLs" default:"nixhash"`
+	NoPerformanceCheck        bool                            `help:"Disable the filehash query performance check" default:"false"`
 	//CacheEnabled              bool     `help:"Enable binary caching"`
 	//CacheFsBackend            string   `help:"Filesystem backend for caching system" default:"os"`
 	//CacheFsOpts               string   `help:"Filesystem backend optional config" default:""`
@@ -83,7 +84,11 @@ func Serve(cmdCtx *CmdContext) error {
 		zap.String("store_root", nixStoreRoot.String()),
 		zap.String("store_path", storePath))
 
-	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, storePath, nixstore.WithNARURLFormatConvention(CLI.Serve.NarPathFormat))
+	nixOpts := []nixstore.NixStoreOption{
+		nixstore.WithNARURLFormatConvention(CLI.Serve.NarPathFormat),
+		nixstore.WithNoPerformanceCheck(CLI.Serve.NoPerformanceCheck),
+	}
+	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, storePath, nixOpts...)
 	if err != nil {
 		l.Error("Error during server startup", zap.Error(err))
 		return err
