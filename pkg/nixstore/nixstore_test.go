@@ -37,7 +37,10 @@ type NixStoreSuite struct {
 func (n *NixStoreSuite) SetUpSuite(c *C) {
 	var err error
 	n.nixDb, n.nixStoreRoot = nixstore.DefaultNixStore(pathlib.NewPath("", pathlib.PathWithAfero(afero.NewOsFs())))
-	n.store, err = nixstore.NewNixStore(n.nixDb, n.nixStoreRoot, nixstore.DefaultStorePath)
+	n.store, err = nixstore.NewNixStore(n.nixDb, n.nixStoreRoot, nixstore.DefaultStorePath,
+		nixstore.WithNARURLFormatConvention(nixstore.NarURLFormatConventionFilehash),
+		nixstore.WithNoPerformanceCheck(true),
+	)
 	c.Assert(err, IsNil)
 }
 
