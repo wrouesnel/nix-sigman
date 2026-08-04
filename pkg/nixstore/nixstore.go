@@ -81,6 +81,7 @@ const DefaultStorePath = "/nix/store"
 // NarURLFormatConvention defines the convention to use for NAR URLs served by
 // the server.
 // ENUM(
+// auto // Autodetect filehash suitability and fallback to nixhash otherwise
 // nixhash  // Use the Nix hash path for lookups
 // filehash // Use the filehash only. Slow if an index on the hash is not included
 // )
@@ -138,7 +139,34 @@ func NewNixStore(nixDb *pathlib.Path, storeRoot *pathlib.Path, storePath string,
 
 	// If fileHash querying is selected, check that the database has an index
 	// for the fileHash by checking the query plan is _not_ just a scan
-	if options.narURLFormatConvention == NarURLFormatConventionFilehash && !options.noPerformanceCheck {
+	switch options.narURLFormatConvention {
+	case NarURLFormatConventionAuto, NarURLFormatConventionFilehash:
+		plan := make([]ExplainQueryPlan, 0)
+		if err := db.Select(&plan, fmt.Sprintf("EXPLAIN QUERY PLAN %s", sqlLookupPathByFileHash), ""); err != nil {
+			return nil, err
+		}
+		if len(plan) == 1 {
+			if plan[0].Detail == "SCAN ValidPaths" {
+				if !options.noPerformanceCheck {
+					return nil, errors.New("filehash NAR URL format but no index for hash found in Nix DB. Add an index: CREATE INDEX IndexValidPathsHash ON ValidPaths(hash);")
+				}
+			}
+		}
+	}
+
+	if options.narURLFormatConvention == NarURLFormatConventionAuto {
+		plan := make([]ExplainQueryPlan, 0)
+		if err := db.Select(&plan, fmt.Sprintf("EXPLAIN QUERY PLAN %s", sqlLookupPathByFileHash), ""); err != nil {
+			return nil, err
+		}
+		if len(plan) == 1 {
+			if plan[0].Detail == "SCAN ValidPaths" {
+				options.narURLFormatConvention = NarURLFormatConventionNixhash
+			} else {
+				options.narURLFormatConvention = NarURLFormatConventionFilehash
+			}
+		}
+	} else if options.narURLFormatConvention == NarURLFormatConventionFilehash && !options.noPerformanceCheck {
 		plan := make([]ExplainQueryPlan, 0)
 		if err := db.Select(&plan, fmt.Sprintf("EXPLAIN QUERY PLAN %s", sqlLookupPathByFileHash), ""); err != nil {
 			return nil, err

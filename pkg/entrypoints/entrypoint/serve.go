@@ -39,7 +39,7 @@ type ServeConfig struct {
 	RequiredSignatures        []string                        `help:"Return 404 for narinfo if named signatures are not valid on the NARinfo file after resigning"`
 	NarInfoFreshDuration      time.Duration                   `help:"Default cache-control to put on NARinfo file responses" default:"0s"`
 	ExtendedMetadataSupport   bool                            `help:"Add support for query parameters to return additional metadata" default:"false"`
-	NarPathFormat             nixstore.NarURLFormatConvention `help:"Format convention to use for the NAR URLs" default:"nixhash"`
+	NarPathFormat             nixstore.NarURLFormatConvention `help:"Format convention to use for the NAR URLs" default:"auto"`
 	NoPerformanceCheck        bool                            `help:"Disable the filehash query performance check" default:"false"`
 	//CacheEnabled              bool     `help:"Enable binary caching"`
 	//CacheFsBackend            string   `help:"Filesystem backend for caching system" default:"os"`

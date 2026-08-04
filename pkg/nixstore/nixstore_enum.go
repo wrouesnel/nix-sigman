@@ -12,6 +12,9 @@ import (
 )
 
 const (
+	// NarURLFormatConventionAuto is a NarURLFormatConvention of type auto.
+	// Autodetect filehash suitability and fallback to nixhash otherwise
+	NarURLFormatConventionAuto NarURLFormatConvention = "auto"
 	// NarURLFormatConventionNixhash is a NarURLFormatConvention of type nixhash.
 	// Use the Nix hash path for lookups
 	NarURLFormatConventionNixhash NarURLFormatConvention = "nixhash"
@@ -23,6 +26,7 @@ const (
 var ErrInvalidNarURLFormatConvention = fmt.Errorf("not a valid NarURLFormatConvention, try [%s]", strings.Join(_NarURLFormatConventionNames, ", "))
 
 var _NarURLFormatConventionNames = []string{
+	string(NarURLFormatConventionAuto),
 	string(NarURLFormatConventionNixhash),
 	string(NarURLFormatConventionFilehash),
 }
@@ -37,6 +41,7 @@ func NarURLFormatConventionNames() []string {
 // NarURLFormatConventionValues returns a list of the values for NarURLFormatConvention
 func NarURLFormatConventionValues() []NarURLFormatConvention {
 	return []NarURLFormatConvention{
+		NarURLFormatConventionAuto,
 		NarURLFormatConventionNixhash,
 		NarURLFormatConventionFilehash,
 	}
@@ -55,6 +60,7 @@ func (x NarURLFormatConvention) IsValid() bool {
 }
 
 var _NarURLFormatConventionValue = map[string]NarURLFormatConvention{
+	"auto":     NarURLFormatConventionAuto,
 	"nixhash":  NarURLFormatConventionNixhash,
 	"filehash": NarURLFormatConventionFilehash,
 }
