@@ -7,6 +7,8 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/spf13/afero"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/proxy"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/serve"
 	"go.uber.org/zap"
 )
 
@@ -44,10 +46,10 @@ func dispatchCommands(ctx *kong.Context, cmdCtx *CmdContext) error {
 
 	switch ctx.Command() {
 	case "serve":
-		err = Serve(cmdCtx)
+		err = serve.Serve(cmdCtx)
 
 	case "proxy <root>":
-		err = Proxy(cmdCtx)
+		err = proxy.Proxy(cmdCtx)
 	case "sign <nar-info-files>":
 		err = Sign(cmdCtx)
 

@@ -1,0 +1,63 @@
+openapi: 3.1.0
+info:
+  title: Nix-Sigman Binary Cache Server API
+  description: >
+    API specification for the management functions of the nix-sigman server API.
+  version: 1.0.0
+servers:
+  - url: 'http://localhost:8080'
+
+components:
+  securitySchemes:
+    AccessToken:
+      type: http
+      scheme: bearer
+
+paths:
+  /ping:
+    get:
+      summary: Status check for server availability
+      tags:
+        - status
+
+  /auth/password:
+    post:
+      summary: Authenticate to the server with a username and password
+      tags:
+        - auth
+
+  /auth/kerberos:
+    post:
+      summary: Authenticate to the server using a local kerberos ticket
+      tags:
+        - auth
+
+  /keys/available:
+    get:
+      summary: List the currently available keys to the server
+    post:
+      security:
+        - bearerAuth: [ ]
+      summary: Add a new public or private key to the server
+
+  /keys/generate:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Generate a new private key on the server and return the public key
+
+  /upload/accepted-keys:
+    get:
+      summary: List the current signing keys accepted for uploads.
+    post:
+      security:
+        - bearerAuth: [ ]
+      summary: Add a new signing key which will be accepted for uploads
+
+  /serve/resigning:
+    get:
+      summary: Return the current resigning configuration
+    post:
+      security:
+        - bearerAuth: [ ]
+      summary: Add a new resigning configuration

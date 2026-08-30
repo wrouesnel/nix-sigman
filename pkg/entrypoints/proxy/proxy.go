@@ -1,4 +1,4 @@
-package entrypoint
+package proxy
 
 import (
 	"bytes"
@@ -16,6 +16,7 @@ import (
 	"github.com/julienschmidt/httprouter"
 	"github.com/mailgun/multibuf"
 	"github.com/wrouesnel/multihttp"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/entrypoint"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"github.com/wrouesnel/nix-sigman/pkg/resigning"
 	"go.uber.org/zap"
@@ -34,46 +35,46 @@ type ProxyConfig struct {
 }
 
 // Proxy implements the dynamic resigning server
-func Proxy(cmdCtx *CmdContext) error {
+func Proxy(cmdCtx *entrypoint.CmdContext) error {
 	l := cmdCtx.logger
 
 	l.Debug("Loading private keys")
-	privateKeys, err := loadPrivateKeys(cmdCtx.logger)
+	privateKeys, err := entrypoint.loadPrivateKeys(cmdCtx.logger)
 	if err != nil {
 		cmdCtx.logger.Error("Error loading private keys", zap.Error(err))
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&entrypoint.ErrCommand{}, err)
 	}
 
 	l.Debug("Loading public keys")
-	publicKeys, err := loadPublicKeys(cmdCtx.logger)
+	publicKeys, err := entrypoint.loadPublicKeys(cmdCtx.logger)
 	if err != nil {
 		cmdCtx.logger.Error("Error loading public keys", zap.Error(err))
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&entrypoint.ErrCommand{}, err)
 	}
 
 	l.Debug("Load signing map")
 	signers, err := resigning.LoadSigningMap(l,
-		&CLI.Proxy.ResigningConfig,
+		&entrypoint.CLI.Proxy.ResigningConfig,
 		privateKeys,
 		publicKeys,
 	)
 	if err != nil {
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&entrypoint.ErrCommand{}, err)
 	}
 
 	l.Debug("Load push signing map")
 	var pushSigners resigning.ConditionalResigners
-	if CLI.Proxy.AllowPush {
+	if entrypoint.CLI.Proxy.AllowPush {
 		pushSigners, err = resigning.LoadSigningMap(l,
-			&CLI.Proxy.PushResigningConfig,
+			&entrypoint.CLI.Proxy.PushResigningConfig,
 			privateKeys,
 			publicKeys)
 		if err != nil {
-			return errors.Join(&ErrCommand{}, err)
+			return errors.Join(&entrypoint.ErrCommand{}, err)
 		}
 	}
 
-	rootDir := pathlib.NewPath(CLI.Proxy.Root, pathlib.PathWithAfero(cmdCtx.fs)).Clean()
+	rootDir := pathlib.NewPath(entrypoint.CLI.Proxy.Root, pathlib.PathWithAfero(cmdCtx.fs)).Clean()
 	l.Info("Serving cache from", zap.String("output_dir", rootDir.String()))
 
 	handle := func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
@@ -87,7 +88,7 @@ func Proxy(cmdCtx *CmdContext) error {
 			st = nil
 		}
 
-		if name == NixCacheInfoName {
+		if name == entrypoint.NixCacheInfoName {
 			if r.Method == http.MethodPut {
 				// Push mode does not allow changing cache parameters
 				w.WriteHeader(http.StatusForbidden)
@@ -165,12 +166,12 @@ func Proxy(cmdCtx *CmdContext) error {
 						w.WriteHeader(http.StatusBadRequest)
 						w.Write([]byte(fmt.Sprintf("Signing Error: %s", name)))
 						return
-					} else if !didSignature && CLI.Proxy.PushRequiresResigning {
+					} else if !didSignature && entrypoint.CLI.Proxy.PushRequiresResigning {
 						w.WriteHeader(http.StatusForbidden)
 						w.Write([]byte(fmt.Sprintf("Forbidden (supplied path did not match any push resigning rules): %s", name)))
 						return
 					}
-				} else if CLI.Proxy.PushRequiresResigning && pushSigners == nil {
+				} else if entrypoint.CLI.Proxy.PushRequiresResigning && pushSigners == nil {
 					w.WriteHeader(http.StatusInternalServerError)
 					w.Write([]byte(fmt.Sprintf("Internal Server Error (resigning required but no resigners configured): %s", name)))
 					return
@@ -187,7 +188,7 @@ func Proxy(cmdCtx *CmdContext) error {
 				// Check for an existing file. Note: resigning configs might change
 				// what would be actually returned, but the upload system deals solely
 				// in what's actually going to be stored.
-				ninfo, err := loadNarInfo(l, requestName)
+				ninfo, err := entrypoint.loadNarInfo(l, requestName)
 				if err == nil {
 					// Got an existing NAR info, is it equivalent to the one we currently have?
 					if bytes.Equal(receivedNinfo.Fingerprint(), ninfo.Fingerprint()) {
@@ -220,7 +221,7 @@ func Proxy(cmdCtx *CmdContext) error {
 							return
 						}
 					} else {
-						if !CLI.Proxy.PushOverwrite {
+						if !entrypoint.CLI.Proxy.PushOverwrite {
 							w.WriteHeader(http.StatusConflict)
 							w.Write([]byte(fmt.Sprintf("Conflict: Remote path already exists and replacing is not allowed: %s", name)))
 						} else {
@@ -265,7 +266,7 @@ func Proxy(cmdCtx *CmdContext) error {
 				return
 			}
 
-			ninfo, err := loadNarInfo(l, requestName)
+			ninfo, err := entrypoint.loadNarInfo(l, requestName)
 			if err != nil {
 				//l.Warn("File Not Found", zap.String("error", err.Error()))
 				w.WriteHeader(http.StatusNotFound)
@@ -400,7 +401,7 @@ func Proxy(cmdCtx *CmdContext) error {
 	router.GET("/*name", handle)
 	router.HEAD("/*name", handle)
 
-	if CLI.Proxy.AllowPush {
+	if entrypoint.CLI.Proxy.AllowPush {
 		l.Info("Push to proxied store enabled!")
 		router.PUT("/*name", handle)
 	}
@@ -413,7 +414,7 @@ func Proxy(cmdCtx *CmdContext) error {
 	)
 
 	webCtx, webCancel := context.WithCancel(cmdCtx.ctx)
-	listeners, errCh, listenerErr := multihttp.Listen(CLI.Proxy.Listen, logger(router))
+	listeners, errCh, listenerErr := multihttp.Listen(entrypoint.CLI.Proxy.Listen, logger(router))
 	if listenerErr != nil {
 		l.Error("Error setting up listeners", zap.Error(listenerErr))
 		webCancel()

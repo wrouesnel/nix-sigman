@@ -1,4 +1,4 @@
-package entrypoint_test
+package serve_test
 
 import (
 	. "gopkg.in/check.v1"

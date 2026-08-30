@@ -1,4 +1,4 @@
-package entrypoint
+package serve
 
 import (
 	"bytes"
@@ -19,6 +19,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/multihttp"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/entrypoint"
 	"github.com/wrouesnel/nix-sigman/pkg/nixstore"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"github.com/wrouesnel/nix-sigman/pkg/resigning"
@@ -49,33 +50,33 @@ type ServeConfig struct {
 // Serve implements a Nix HTTP cache server by reading an extant `/nix` directory
 // in flatfile format. It is possible, though not advised, to share this with a system
 // nix-daemon.
-func Serve(cmdCtx *CmdContext) error {
+func Serve(cmdCtx *entrypoint.CmdContext) error {
 	l := cmdCtx.logger
 
-	initialRoot := CLI.Serve.Root
+	initialRoot := entrypoint.CLI.Serve.Root
 	if initialRoot == "/" {
 		initialRoot = ""
 	}
 
 	root := pathlib.NewPath(initialRoot, pathlib.PathWithAfero(afero.NewOsFs()))
 	nixDb, nixStoreRoot := nixstore.DefaultNixStore(root)
-	storePath := CLI.Serve.StorePath
+	storePath := entrypoint.CLI.Serve.StorePath
 
 	startTime := time.Now()
 
-	if CLI.Serve.NixDB != nil {
-		if filepath.IsAbs(*CLI.Serve.NixDB) {
-			nixDb = pathlib.NewPath(*CLI.Serve.NixDB, pathlib.PathWithAfero(afero.NewOsFs()))
+	if entrypoint.CLI.Serve.NixDB != nil {
+		if filepath.IsAbs(*entrypoint.CLI.Serve.NixDB) {
+			nixDb = pathlib.NewPath(*entrypoint.CLI.Serve.NixDB, pathlib.PathWithAfero(afero.NewOsFs()))
 		} else {
-			nixDb = root.Join(*CLI.Serve.NixDB)
+			nixDb = root.Join(*entrypoint.CLI.Serve.NixDB)
 		}
 	}
 
-	if CLI.Serve.StoreRoot != nil {
-		if filepath.IsAbs(*CLI.Serve.StoreRoot) {
-			nixStoreRoot = pathlib.NewPath(*CLI.Serve.StoreRoot, pathlib.PathWithAfero(afero.NewOsFs()))
+	if entrypoint.CLI.Serve.StoreRoot != nil {
+		if filepath.IsAbs(*entrypoint.CLI.Serve.StoreRoot) {
+			nixStoreRoot = pathlib.NewPath(*entrypoint.CLI.Serve.StoreRoot, pathlib.PathWithAfero(afero.NewOsFs()))
 		} else {
-			nixStoreRoot = root.Join(*CLI.Serve.StoreRoot)
+			nixStoreRoot = root.Join(*entrypoint.CLI.Serve.StoreRoot)
 		}
 	}
 
@@ -85,8 +86,8 @@ func Serve(cmdCtx *CmdContext) error {
 		zap.String("store_path", storePath))
 
 	nixOpts := []nixstore.NixStoreOption{
-		nixstore.WithNARURLFormatConvention(CLI.Serve.NarPathFormat),
-		nixstore.WithNoPerformanceCheck(CLI.Serve.NoPerformanceCheck),
+		nixstore.WithNARURLFormatConvention(entrypoint.CLI.Serve.NarPathFormat),
+		nixstore.WithNoPerformanceCheck(entrypoint.CLI.Serve.NoPerformanceCheck),
 	}
 	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, storePath, nixOpts...)
 	if err != nil {
@@ -95,48 +96,48 @@ func Serve(cmdCtx *CmdContext) error {
 	}
 
 	l.Debug("Loading private keys")
-	privateKeys, err := loadPrivateKeys(cmdCtx.logger)
+	privateKeys, err := entrypoint.loadPrivateKeys(cmdCtx.logger)
 	if err != nil {
 		cmdCtx.logger.Error("Error loading private keys", zap.Error(err))
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&entrypoint.ErrCommand{}, err)
 	}
 
 	l.Debug("Loading public keys")
-	publicKeys, err := loadPublicKeys(cmdCtx.logger)
+	publicKeys, err := entrypoint.loadPublicKeys(cmdCtx.logger)
 	if err != nil {
 		cmdCtx.logger.Error("Error loading public keys", zap.Error(err))
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&entrypoint.ErrCommand{}, err)
 	}
 
 	l.Debug("Load signing map")
 	signers, err := resigning.LoadSigningMap(l,
-		&CLI.Serve.ResigningConfig,
+		&entrypoint.CLI.Serve.ResigningConfig,
 		privateKeys,
 		publicKeys,
 	)
 	if err != nil {
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&entrypoint.ErrCommand{}, err)
 	}
 
-	requiredSigs := mapset.NewSet[string](CLI.Serve.RequiredSignatures...)
-	for _, sigName := range CLI.Serve.RequiredSignatures {
+	requiredSigs := mapset.NewSet[string](entrypoint.CLI.Serve.RequiredSignatures...)
+	for _, sigName := range entrypoint.CLI.Serve.RequiredSignatures {
 		if !requiredSigs.Contains(sigName) {
 			l.Error("Required signature is not configured as a public key", zap.String("keyname", sigName))
-			return errors.Join(&ErrCommand{}, errors.New("required signature not configured as public signature"))
+			return errors.Join(&entrypoint.ErrCommand{}, errors.New("required signature not configured as public signature"))
 		}
 	}
 
 	handlerConfig := &NixHandler{
 		Logger:        l,
 		StorePath:     storePath,
-		WantMassQuery: CLI.Serve.WantMassQuery,
-		Priority:      CLI.Serve.Priority,
+		WantMassQuery: entrypoint.CLI.Serve.WantMassQuery,
+		Priority:      entrypoint.CLI.Serve.Priority,
 		RequiredSignatures: lo.FilterSliceToMap(publicKeys, func(item nixtypes.NamedPublicKey) (string, nixtypes.NamedPublicKey, bool) {
 			return item.KeyName, item, requiredSigs.Contains(item.KeyName)
 		}),
 		StartTime:               startTime,
-		NarInfoFreshDuration:    CLI.Serve.NarInfoFreshDuration,
-		ExtendedMetadataSupport: CLI.Serve.ExtendedMetadataSupport,
+		NarInfoFreshDuration:    entrypoint.CLI.Serve.NarInfoFreshDuration,
+		ExtendedMetadataSupport: entrypoint.CLI.Serve.ExtendedMetadataSupport,
 		Signers:                 signers,
 		Store:                   store,
 	}
@@ -151,7 +152,7 @@ func Serve(cmdCtx *CmdContext) error {
 	)
 
 	webCtx, webCancel := context.WithCancel(cmdCtx.ctx)
-	listeners, errCh, listenerErr := multihttp.Listen(CLI.Serve.Listen, logger(handlerConfig))
+	listeners, errCh, listenerErr := multihttp.Listen(entrypoint.CLI.Serve.Listen, logger(handlerConfig))
 	if listenerErr != nil {
 		l.Error("Error setting up listeners", zap.Error(listenerErr))
 		webCancel()
@@ -214,7 +215,7 @@ func (n *NixHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, name, _ := strings.Cut(r.URL.Path, "/")
 
 	// Handle the cache info response
-	if name == NixCacheInfoName {
+	if name == entrypoint.NixCacheInfoName {
 		cacheInfoResp := []byte(fmt.Sprintf(NixCacheInfoTemplate, n.StorePath, lo.Ternary(n.WantMassQuery, "1", "0"), n.Priority))
 
 		w.Header().Set(httpheaders.ContentType, "text/x-nix-cache-info")

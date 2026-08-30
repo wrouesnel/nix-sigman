@@ -1,0 +1,6 @@
+# yaml-language-server: $schema=../../../configuration-schema.json
+package: rootapi
+output: nixbinarycache.gen.go
+generate:
+  models: true
+  echo-server: true

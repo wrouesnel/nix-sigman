@@ -1,0 +1,72 @@
+openapi: 3.1.0
+info:
+  title: Nix Binary Cache API
+  description: > 
+    OpenAPI specification of the Nix Binary Cache. This implementation does *not*
+    support compressed NARs explicitly.
+  version: 1.0.0
+servers:
+  - url: 'http://localhost:8080'
+
+paths:
+  /nix-cache-info:
+    get:
+      summary: Get the binary cache configuration information
+      responses:
+        "200":
+          description: Returns the nix binary cache configuration
+          content:
+            text/x-nix-cache-info:
+              schema:
+                type: string
+              example: |
+                StoreDir: /nix/store
+                WantMassQuery: 1
+                Priority: 40
+
+  /{nixhash}.narinfo:
+    get:
+      summary: Get the NAR info description of a nix hash
+      parameters:
+        - in: nixhash
+          description: Nix input hash
+          example: 58br4vk3q5akf4g8lx0pqzfhn47k3j8d
+          schema:
+            type: string
+          required: true
+      responses:
+        "200":
+          description: Returns the nix binary cache configuration
+          content:
+            text/x-nix-narinfo:
+              schema:
+                type: string
+              example: |
+                StorePath: /nix/store/58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37
+                URL: nar/1ncdraq4baqrdp773pmrpb6b3pngkym9278z1kg3qkxxj25s3mrw.nar
+                Compression: none
+                FileHash: sha256:07pyb1bl3q4ivh86vx6vjjivfsm1hqrwdfm5d2x8kk7qzysl5j4j
+                FileSize: 1654408
+                NarHash: sha256:07pyb1bl3q4ivh86vx6vjjivfsm1hqrwdfm5d2x8kk7qzysl5j4j
+                NarSize: 1654408
+                References: 58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37 rmy663w9p7xb202rcln4jjzmvivznmz8-glibc-2.40-66
+                Deriver: cfp8jh04f3jfdcjskw2p64ri3w6njndm-bash-5.2p37.drv
+                Sig: cache.nixos.org-1:jmkQzt2cr2aaXwrftMjybjNktqNZXcb+6LR8auhzEnIGzU9t6A3HU8Y67vraZJpgJ90XPNfkYiqUvXs5yiomAQ==
+
+  /nar/{path}.nar:
+    get:
+      summary: Get the NAR file for a given hash
+      parameters:
+        - in: path
+          description: NAR hash reference as provided from narinfo response
+          schema:
+            type: string
+          required: true
+      responses:
+        "200":
+          description: Returns the nix binary cache configuration
+          content:
+            application/x-nix-nar:
+              schema:
+                type: string
+                format: binary

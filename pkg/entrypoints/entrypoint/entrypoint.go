@@ -18,6 +18,8 @@ import (
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/kongutil"
 	nix_http_cachefs "github.com/wrouesnel/nix-http-cachefs"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/proxy"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/serve"
 	"go.uber.org/zap/zapcore"
 
 	"io"
@@ -89,8 +91,8 @@ var CLI struct {
 	Validate     ValidateConfig     `cmd:"" help:"Validate a NarInfo file format"`
 	Derivations  DerivationsConfig  `cmd:"" help:"Manipulate derivations"`
 	Realizations RealizationsConfig `cmd:"" help:"Manipulate binary packages"`
-	Proxy        ProxyConfig        `cmd:"" help:"Serve a binary cache with resigning"`
-	Serve        ServeConfig        `cmd:"" help:"Serve a local nix store"`
+	Proxy        proxy.ProxyConfig  `cmd:"" help:"Serve a binary cache with resigning"`
+	Serve        serve.ServeConfig  `cmd:"" help:"Serve a local nix store"`
 	NewKey       NewKeyConfig       `cmd:"" help:"Generate a new signing keypair for the current user"`
 }
 
