@@ -1,6 +1,5 @@
-# yaml-language-server: $schema=../../../configuration-schema.json
 output: api.gen.go
-package: rootapi
+package: api
 generate:
   echo5-server: true
   models: true
@@ -8,4 +7,4 @@ output-options:
   # to make sure that all types are generated
   skip-prune: true
 import-mapping:
-  ./types.yaml: closure-mogul/pkg/scrubber/api/v1/types
+  ./types.yaml: github.com/wrouesnel/nix-sigman/pkg/serve/api/v1/types

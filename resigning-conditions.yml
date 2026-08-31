@@ -1,0 +1,14 @@
+- if-signed-by:
+    keys:
+      - key1
+      - key2
+      - key3
+    sign-with:
+      - keys
+
+    keys:
+      - key1
+      - key2
+      - key3
+- if-signed-by:
+    keys:

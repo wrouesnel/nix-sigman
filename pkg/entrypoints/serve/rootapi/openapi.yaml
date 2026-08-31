@@ -28,7 +28,8 @@ paths:
     get:
       summary: Get the NAR info description of a nix hash
       parameters:
-        - in: nixhash
+        - in: path
+          name: nixhash
           description: Nix input hash
           example: 58br4vk3q5akf4g8lx0pqzfhn47k3j8d
           schema:
@@ -58,6 +59,7 @@ paths:
       summary: Get the NAR file for a given hash
       parameters:
         - in: path
+          name: path
           description: NAR hash reference as provided from narinfo response
           schema:
             type: string

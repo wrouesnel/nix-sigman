@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,11 +48,26 @@ func (e ErrShortWrite) Error() string {
 }
 
 type NixStore interface {
+	GetNixCacheInfo() *NixCacheInfo
 	GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error)
 	GetNar(w io.Writer, ninfo *nixtypes.NarInfo) error
 	// GetStorePathByURL presuming the supplied string is following the convention
 	GetStorePathByURL(urlPath string) (string, error)
 	GetStorePathByFileHash(fileHash string) (string, error)
+}
+
+type NixCacheInfo struct {
+	StorePath     string
+	Priority      int
+	WantMassQuery bool
+}
+
+func (n *NixCacheInfo) MarshalText() (text []byte, err error) {
+	return fmt.Append([]byte{},
+		[]byte("StoreDir: "), []byte(n.StorePath), '\n',
+		[]byte("WantMassQuery: "), strconv.FormatBool(n.WantMassQuery), '\n',
+		[]byte("Priority: "), strconv.FormatInt(int64(n.Priority), 10), '\n',
+	), nil
 }
 
 // Note: this is only efficient if a fixed prefix (the nix store path) is the glob
@@ -200,6 +216,14 @@ type nixStore struct {
 	hashingAlg string
 	// nix store behavior options from users
 	nixStoreOptions
+}
+
+func (n *nixStore) GetNixCacheInfo() *NixCacheInfo {
+	return new(NixCacheInfo{
+		StorePath:     n.storePath,
+		Priority:      40,
+		WantMassQuery: true,
+	})
 }
 
 func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) {
