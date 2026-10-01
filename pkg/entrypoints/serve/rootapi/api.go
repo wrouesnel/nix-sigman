@@ -1,6 +1,7 @@
 package rootapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,7 +12,7 @@ import (
 	"github.com/wrouesnel/nix-sigman/pkg/nixstore"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
-	"google.golang.org/genproto/googleapis/rpc/context"
+	"go.withmatt.com/httpheaders"
 )
 
 type Empty struct{}
@@ -53,7 +54,13 @@ func (a *apiImpl) GetNixhashNarinfo(ctx *echo.Context, nixhash string) error {
 }
 
 func (a *apiImpl) handleNARInfo(ctx *echo.Context, ninfo *nixtypes.NarInfo, registrationTime time.Time) error {
-
+	content, err := ninfo.MarshalText()
+	if err != nil {
+		return ctx.Blob(http.StatusInternalServerError,
+			"text/plain", fmt.Appendf([]byte{}, "internal server error: %v", err.Error()))
+	}
+	ctx.Response().Header().Set(httpheaders.LastModified, registrationTime.UTC().Format(http.TimeFormat))
+	return ctx.Blob(http.StatusOK, nixstore.MimeTypeNixNarInfo, content)
 }
 
 func (a *apiImpl) GetNarPathNar(ctx *echo.Context, path string) error {

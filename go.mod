@@ -16,6 +16,7 @@ require (
 	github.com/integralist/go-findroot v0.0.0-20160518114804-ac90681525dc
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/julienschmidt/httprouter v1.3.0
+	github.com/labstack/echo/v5 v5.3.1
 	github.com/labstack/gommon v0.4.2
 	github.com/magefile/mage v1.15.0
 	github.com/mailgun/multibuf v0.2.0
@@ -24,20 +25,22 @@ require (
 	github.com/muesli/go-app-paths v0.2.2
 	github.com/ncruces/go-strftime v1.0.0
 	github.com/nix-community/go-nix v0.0.0-20250101154619-4bdde671e0a1
+	github.com/oapi-codegen/runtime v1.7.0
 	github.com/pkg/errors v0.9.1
-	github.com/restayway/rescode v1.0.2
 	github.com/samber/lo v1.52.0
 	github.com/spf13/afero v1.15.0
 	github.com/wrouesnel/go-nix v0.0.0-20260730122320-978b9a57a85f
+	github.com/wrouesnel/go.logutil v0.0.0-20260831004131-2c91cc3e879a
 	github.com/wrouesnel/kongutil v0.0.0-20250331082405-8d531c9e23eb
 	github.com/wrouesnel/multihttp v1.0.0
 	github.com/wrouesnel/nix-http-cachefs v0.0.0-20251217024558-f63034e83d08
 	go.uber.org/multierr v1.11.0
 	go.uber.org/zap v1.27.1
 	go.withmatt.com/httpheaders v1.0.0
+	go.yaml.in/yaml/v4 v4.0.0-00010101000000-000000000000
 	golang.org/x/mod v0.38.0
 	golang.org/x/sync v0.22.0
-	google.golang.org/grpc v1.56.3
+	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.40.1
@@ -52,6 +55,7 @@ require (
 	github.com/TylerBrock/colorjson v0.0.0-20200706003622-8a50f05110d2 // indirect
 	github.com/abice/go-enum v0.6.0 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
 	github.com/bodgit/plumbing v1.3.0 // indirect
 	github.com/bodgit/sevenzip v1.6.1 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
@@ -64,7 +68,6 @@ require (
 	github.com/go-openapi/jsonpointer v0.23.1 // indirect
 	github.com/go-openapi/swag/jsonname v0.26.0 // indirect
 	github.com/golang/mock v1.6.0 // indirect
-	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/golang/snappy v1.0.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -77,7 +80,6 @@ require (
 	github.com/klauspost/pgzip v1.2.6 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
-	github.com/labstack/echo/v5 v5.3.1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/goveralls v0.0.12 // indirect
@@ -108,14 +110,12 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/vmware-labs/yaml-jsonpath v0.3.2 // indirect
-	github.com/wrouesnel/go.logutil v0.0.0-20260831004131-2c91cc3e879a // indirect
 	github.com/xi2/xz v0.0.0-20171230120015-48954b6210f8 // indirect
 	github.com/xrash/smetrics v0.0.0-20201216005158-039620a65673 // indirect
 	github.com/yuseferi/zax/v2 v2.4.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	go.yaml.in/yaml/v4 v4.0.0-00010101000000-000000000000 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
-	golang.org/x/crypto v0.36.0 // indirect
+	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/exp v0.0.0-20251125195548-87e1e737ad39 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/telemetry v0.0.0-20260708182218-49f421fb7959 // indirect
