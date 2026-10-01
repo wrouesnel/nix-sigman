@@ -53,7 +53,7 @@ func Validate(cmdCtx *CmdContext) error {
 		// Compare
 		if bytes.Equal(fileBytes, remarshalled) == false {
 			if CLI.Validate.Fix {
-				if CLI.Sign.BackupNARInfos {
+				if CLI.Validate.BackupNARInfos {
 					if err = backNinfo(l, path); err != nil {
 						l.Warn("Failed to backup narinfo file - rewrite aborted", zap.Error(err))
 						return nil
