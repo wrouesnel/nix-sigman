@@ -18,6 +18,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/wrouesnel/go-nix/nar"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
+	"zombiezen.com/go/nix/nixbase32"
 
 	_ "modernc.org/sqlite"
 )
@@ -187,6 +188,14 @@ func NewNixStore(nixDb *pathlib.Path, storeRoot *pathlib.Path, storePath string,
 	}, nil
 }
 
+// storeHashLen is the length of the nixbase32 hash part of a store path name.
+const storeHashLen = 32
+
+// isStoreHash checks whether s is a valid store path hash.
+func isStoreHash(s string) bool {
+	return len(s) == storeHashLen && nixbase32.ValidateString(s) == nil
+}
+
 // hasFileHashIndex checks whether the database can look up paths by file hash
 // without a full table scan.
 func hasFileHashIndex(db *sqlx.DB) (bool, error) {
@@ -229,8 +238,10 @@ func (n *nixStore) GetNarInfo(path string) (nixtypes.NarInfo, time.Time, error) 
 	trimmed, _, _ := strings.Cut(filepath.Base(path), ".")
 	hashName, _, _ := strings.Cut(trimmed, "-")
 
-	// TODO: does this need sanitizing? You can't really do anything by messing with
-	// the lookup given the construction.
+	// Only accept well-formed store hashes, so glob metacharacters can't widen the lookup.
+	if !isStoreHash(hashName) {
+		return nixtypes.NarInfo{}, time.Time{}, &ErrInvalid{}
+	}
 
 	// Execute a very loosey-goosey search so we can work with other paths
 	nixPath := new(ValidPaths)

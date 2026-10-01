@@ -239,7 +239,9 @@ func (n *NixHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(name, ".narinfo") {
 		ninfo, registrationTime, err := n.Store.GetNarInfo(name)
 		if err != nil {
-			if _, found := errors.AsType[*nixstore.ErrNotFound](err); found {
+			_, notFound := errors.AsType[*nixstore.ErrNotFound](err)
+			_, invalid := errors.AsType[*nixstore.ErrInvalid](err)
+			if notFound || invalid {
 				w.WriteHeader(http.StatusNotFound)
 				w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
 				return

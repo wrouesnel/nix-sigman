@@ -87,3 +87,12 @@ func (s *NixStoreDBSuite) TestNixCacheInfo(c *C) {
 	c.Assert(err, IsNil)
 	c.Check(string(text), Equals, "StoreDir: /nix/store\nWantMassQuery: 1\nPriority: 30\n")
 }
+
+func (s *NixStoreDBSuite) TestGetNarInfoRejectsInvalidHashes(c *C) {
+	store, err := nixstore.NewNixStore(s.nixDb, s.nixDb.Parent(), nixstore.DefaultStorePath)
+	c.Assert(err, IsNil)
+	for _, name := range []string{"*.narinfo", "58br4vk3q5akf4g8lx0pqzfhn47k3j8*.narinfo", "58br4vk3q5akf4g8lx0pqzfhn47k3j8.narinfo", "?8br4vk3q5akf4g8lx0pqzfhn47k3j8d.narinfo"} {
+		_, _, err := store.GetNarInfo(name)
+		c.Check(err, FitsTypeOf, &nixstore.ErrInvalid{}, Commentf("name %s", name))
+	}
+}
