@@ -51,3 +51,33 @@ func (k *KeyUtilsSuite) TestParsing(c *C) {
 		return item.PublicKey()
 	}))
 }
+
+func (k *KeyUtilsSuite) TestParsingComments(c *C) {
+	pkey, err := GeneratePrivateKey("TestKey")
+	c.Assert(err, IsNil)
+	pubkey := pkey.PublicKey()
+	pubkeyBytes, err := pubkey.MarshalText()
+	c.Assert(err, IsNil)
+
+	input := "# a header comment\n" +
+		string(pubkeyBytes) + " # trailing comment\n" +
+		string(pubkeyBytes) + "\t#tab comment\n" +
+		string(pubkeyBytes) + "   \n"
+	keys, err := ParsePublicKeys(bytes.NewReader([]byte(input)))
+	c.Assert(err, IsNil)
+	c.Assert(keys, DeepEquals, []NamedPublicKey{pubkey, pubkey, pubkey})
+}
+
+func (k *KeyUtilsSuite) TestParsingReportsFailures(c *C) {
+	pkey, err := GeneratePrivateKey("TestKey")
+	c.Assert(err, IsNil)
+	pkeyBytes, err := pkey.MarshalText()
+	c.Assert(err, IsNil)
+
+	keys, err := ParsePrivateKeys(bytes.NewReader([]byte(string(pkeyBytes) + "\nnot-a-key\n")))
+	c.Assert(err, FitsTypeOf, &ErrParsing{})
+	c.Check(len(keys), Equals, 1)
+
+	_, err = ParsePublicKeys(bytes.NewReader([]byte("garbage:!!!\n")))
+	c.Assert(err, FitsTypeOf, &ErrParsing{})
+}

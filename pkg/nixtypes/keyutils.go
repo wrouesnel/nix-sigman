@@ -38,10 +38,14 @@ func ParsePrivateKeys(reader io.Reader) ([]NamedPrivateKey, error) {
 	for _, line := range lines {
 		r := NamedPrivateKey{}
 		if err := r.UnmarshalText([]byte(line)); err != nil {
-			failed = append(failed, line)
+			// Record the error rather than the line, which may be secret key material.
+			failed = append(failed, err)
 		} else {
 			keys = append(keys, r)
 		}
+	}
+	if len(failed) > 0 {
+		return keys, &ErrParsing{Failed: failed}
 	}
 	return keys, nil
 }
@@ -56,10 +60,14 @@ func ParsePublicKeys(reader io.Reader) ([]NamedPublicKey, error) {
 	for _, line := range lines {
 		r := NamedPublicKey{}
 		if err := r.UnmarshalText([]byte(line)); err != nil {
-			failed = append(failed, line)
+			// Record the error rather than the line, which may be secret key material.
+			failed = append(failed, err)
 		} else {
 			keys = append(keys, r)
 		}
+	}
+	if len(failed) > 0 {
+		return keys, &ErrParsing{Failed: failed}
 	}
 	return keys, nil
 }
@@ -77,11 +85,15 @@ func commentedLineParser(reader io.Reader) ([]string, error) {
 		if strings.HasPrefix(line, "#") {
 			continue
 		}
-		line, _ = strings.CutSuffix(line, " #")
-		line, _ = strings.CutSuffix(line, "\t#")
+		// Strip trailing comments, which must be separated from the key by whitespace.
+		if idx := strings.IndexFunc(line, func(r rune) bool { return r == ' ' || r == '\t' }); idx != -1 {
+			if comment := strings.TrimSpace(line[idx:]); comment == "" || strings.HasPrefix(comment, "#") {
+				line = line[:idx]
+			}
+		}
 		lines = append(lines, line)
 	}
-	if err := bio.Err(); err != io.EOF {
+	if err := bio.Err(); err != nil {
 		return lines, err
 	}
 	return lines, nil
