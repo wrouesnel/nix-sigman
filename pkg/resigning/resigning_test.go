@@ -91,3 +91,34 @@ func (s *ResigningSuite) TestSignedBySpecifier(c *C) {
 	ok, _ := signed.Verify(s.local.PublicKey())
 	c.Check(ok, Equals, true)
 }
+
+func (s *ResigningSuite) TestUnconditionalOnlyReportsNewSignatures(c *C) {
+	signers, err := s.load(c, resigning.ResigningConfig{
+		AllowUnconditionalResigning: true,
+		UnconditionalResigningKeys:  []string{"local-1"},
+	})
+	c.Assert(err, IsNil)
+
+	ninfo := testNarInfo()
+	didSign, err := signers.MaybeResign(zap.NewNop(), &ninfo)
+	c.Assert(err, IsNil)
+	c.Check(didSign, Equals, true)
+
+	didSign, err = signers.MaybeResign(zap.NewNop(), &ninfo)
+	c.Assert(err, IsNil)
+	c.Check(didSign, Equals, false, Commentf("already signed by the unconditional key"))
+}
+
+func (s *ResigningSuite) TestMissingResigningKeyIsNamed(c *C) {
+	_, err := s.load(c, resigning.ResigningConfig{
+		AllowUnconditionalResigning: true,
+		UnconditionalResigningKeys:  []string{"missing-1"},
+	})
+	c.Assert(err, ErrorMatches, ".*requested private key not loaded: missing-1.*")
+
+	_, err = s.load(c, resigning.ResigningConfig{
+		AllowUnsignedResigning: true,
+		UnsignedResigningKeys:  []string{"missing-2"},
+	})
+	c.Assert(err, ErrorMatches, ".*requested private key not loaded: missing-2.*")
+}

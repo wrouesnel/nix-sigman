@@ -3,6 +3,8 @@ package resigning
 import (
 	"bufio"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/chigopher/pathlib"
@@ -85,7 +87,7 @@ func LoadSigningMap(l *zap.Logger, signingConfig *ResigningConfig, privateKeys [
 				if pKey, found := privateKeyMap[keyName]; found {
 					unsignedResigningKeys = append(unsignedResigningKeys, pKey)
 				} else {
-					unsignedErr = multierr.Append(unsignedErr, fmt.Errorf("requested private key not loaded: %s", pKey.KeyName))
+					unsignedErr = multierr.Append(unsignedErr, fmt.Errorf("requested private key not loaded: %s", keyName))
 				}
 			}
 
@@ -100,16 +102,10 @@ func LoadSigningMap(l *zap.Logger, signingConfig *ResigningConfig, privateKeys [
 					return false, nil
 				}
 				l.Info("Signing unsigned package with unsigned package keys")
-				for _, pkey := range unsignedResigningKeys {
-					_, _, err := ninfo.Sign(pkey)
-					if err != nil {
-						return false, err
-					}
-				}
-				return true, nil
+				return signWithKeys(ninfo, unsignedResigningKeys)
 			})
 		}
-	} else if len(lo.CoalesceSliceOrEmpty(signingConfig.UnconditionalResigningKeys)) > 0 {
+	} else if len(lo.CoalesceSliceOrEmpty(signingConfig.UnsignedResigningKeys)) > 0 {
 		l.Warn("Unsigned Resigning Keys specified but unsigned resigning is not being allowed")
 	}
 
@@ -123,7 +119,7 @@ func LoadSigningMap(l *zap.Logger, signingConfig *ResigningConfig, privateKeys [
 				if pKey, found := privateKeyMap[keyName]; found {
 					unconditionalResigningKeys = append(unconditionalResigningKeys, pKey)
 				} else {
-					unconditionalErr = multierr.Append(unconditionalErr, fmt.Errorf("requested private key not loaded: %s", pKey.KeyName))
+					unconditionalErr = multierr.Append(unconditionalErr, fmt.Errorf("requested private key not loaded: %s", keyName))
 				}
 			}
 
@@ -134,13 +130,7 @@ func LoadSigningMap(l *zap.Logger, signingConfig *ResigningConfig, privateKeys [
 			// Add the unsigned singer to the map
 			signers = append(signers, func(ninfo *nixtypes.NarInfo) (bool, error) {
 				l.Info("Signing package with unconditional keys")
-				for _, pkey := range unconditionalResigningKeys {
-					_, _, err := ninfo.Sign(pkey)
-					if err != nil {
-						return false, err
-					}
-				}
-				return true, nil
+				return signWithKeys(ninfo, unconditionalResigningKeys)
 			})
 		}
 	} else if len(lo.CoalesceSliceOrEmpty(signingConfig.UnconditionalResigningKeys)) > 0 {
@@ -148,6 +138,19 @@ func LoadSigningMap(l *zap.Logger, signingConfig *ResigningConfig, privateKeys [
 	}
 
 	return
+}
+
+// signWithKeys signs ninfo with each key, reporting whether any new signature was added.
+func signWithKeys(ninfo *nixtypes.NarInfo, keys []nixtypes.NamedPrivateKey) (bool, error) {
+	didNewSignature := false
+	for _, key := range keys {
+		didSign, _, err := ninfo.Sign(key)
+		if err != nil {
+			return didNewSignature, err
+		}
+		didNewSignature = didNewSignature || didSign
+	}
+	return didNewSignature, nil
 }
 
 func loadSigningMapFile(path string) (map[string]string, error) {
@@ -189,7 +192,9 @@ func buildSigningMap(publicKeys []nixtypes.NamedPublicKey,
 		return item.KeyName, item
 	})
 
-	for k, v := range signingMap {
+	// Build signers in a stable order so signatures are always applied the same way.
+	for _, k := range slices.Sorted(maps.Keys(signingMap)) {
+		v := signingMap[k]
 		requiredPublicKeys := strings.Split(k, "&")
 		requiredPrivateKeys := strings.Split(v, ",")
 
@@ -228,18 +233,8 @@ func buildSigningMap(publicKeys []nixtypes.NamedPublicKey,
 					return false, nil
 				}
 			}
-			didNewSignature := false
 			// Good signatures - resign
-			for _, key := range signingKeys {
-				didSign, _, err := ninfo.Sign(key)
-				if err != nil {
-					return didSign, err
-				}
-				if didSign {
-					didNewSignature = true
-				}
-			}
-			return didNewSignature, nil
+			return signWithKeys(ninfo, signingKeys)
 		})
 	}
 	return
