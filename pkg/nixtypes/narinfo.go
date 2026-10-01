@@ -33,7 +33,7 @@ type NarInfo struct {
 	References  []string
 	Deriver     string
 	Sig         []NixSignature
-	CA			string
+	CA          string
 
 	// Extra is any extra fields we find
 	Extra map[string]string

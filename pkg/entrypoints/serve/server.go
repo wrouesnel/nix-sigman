@@ -1,5 +1,5 @@
 package serve
 
-// server implements the 
+// server implements the
 type server struct {
 }

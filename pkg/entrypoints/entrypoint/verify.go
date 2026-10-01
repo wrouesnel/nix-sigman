@@ -20,7 +20,7 @@ type VerifyConfig struct {
 	IncludePrivateKeys bool     `help:"Private Keys should also be used for trust" default:"false"`
 	TrustedKeys        []string `help:"Names of keys to verify with (default all)" default:"*"`
 
-	NarInfoFiles       []string `arg:"" help:"NARInfo files. - to read from stdin"`
+	NarInfoFiles []string `arg:"" help:"NARInfo files. - to read from stdin"`
 }
 
 // Verify implements NARInfo and archive verification
