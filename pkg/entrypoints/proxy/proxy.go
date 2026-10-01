@@ -146,7 +146,6 @@ func newRouter(l *zap.Logger, cfg *ProxyConfig, rootDir *pathlib.Path,
 				return
 			}
 			fh, err := requestName.Open()
-			defer fh.Close()
 			if err != nil {
 				l.Warn("File Not Found", zap.String("error", err.Error()))
 				w.WriteHeader(http.StatusNotFound)
@@ -157,6 +156,7 @@ func newRouter(l *zap.Logger, cfg *ProxyConfig, rootDir *pathlib.Path,
 				w.Write([]byte(fmt.Sprintf("Not Found: %s", name)))
 				return
 			}
+			defer fh.Close()
 
 			w.Header().Set(httpheaders.ContentType, "text/x-nix-cache-info")
 			if st != nil {
@@ -274,6 +274,7 @@ func newRouter(l *zap.Logger, cfg *ProxyConfig, rootDir *pathlib.Path,
 						if !cfg.PushOverwrite {
 							w.WriteHeader(http.StatusConflict)
 							w.Write([]byte(fmt.Sprintf("Conflict: Remote path already exists and replacing is not allowed: %s", name)))
+							return
 						} else {
 							l.Info("Overwriting colliding store path with incoming one")
 						}
@@ -281,7 +282,7 @@ func newRouter(l *zap.Logger, cfg *ProxyConfig, rootDir *pathlib.Path,
 				}
 
 				l.Debug("Uploading new NAR info file")
-				f, err := requestName.OpenFile(os.O_CREATE | os.O_WRONLY)
+				f, err := requestName.OpenFile(os.O_CREATE | os.O_WRONLY | os.O_TRUNC)
 				if err != nil {
 					w.WriteHeader(http.StatusInternalServerError)
 					w.Write([]byte(fmt.Sprintf("Internal Server Error (could not create file): %s", name)))
@@ -344,6 +345,7 @@ func newRouter(l *zap.Logger, cfg *ProxyConfig, rootDir *pathlib.Path,
 					return
 				}
 				w.Write([]byte(fmt.Sprintf("Signing Error: %s", name)))
+				return
 			}
 
 			if st != nil {
@@ -409,7 +411,7 @@ func newRouter(l *zap.Logger, cfg *ProxyConfig, rootDir *pathlib.Path,
 					return
 				}
 			}
-			f, err := requestName.OpenFile(os.O_CREATE | os.O_WRONLY)
+			f, err := requestName.OpenFile(os.O_CREATE | os.O_WRONLY | os.O_TRUNC)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
 				w.Write([]byte(fmt.Sprintf("Internal Server Error (could not open file): %s", name)))

@@ -73,3 +73,55 @@ func (s *ProxySuite) TestNixCacheInfoIsServedAndProtected(c *C) {
 	rec = s.do(h, http.MethodPut, "/nix-cache-info", "StoreDir: /evil\n")
 	c.Check(rec.Code, Equals, http.StatusForbidden)
 }
+
+const existingNarInfo = `StorePath: /nix/store/58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37
+URL: nar/58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37.nar
+Compression: none
+FileHash: sha256:1ccvd1lyd3icx3bs1asmhb5xw2yzz3c4bngdrjs3sgsb5vrjlxbz
+FileSize: 1640
+NarHash: sha256:1ccvd1lyd3icx3bs1asmhb5xw2yzz3c4bngdrjs3sgsb5vrjlxbz
+NarSize: 1640
+References: 58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37 8ranqggwk67p5mii3vimljcb9jr0nliq-nixexprs.tar.xz
+Deriver: 8ranqggwk67p5mii3vimljcb9jr0nliq-bash-5.2p37.drv
+`
+
+const conflictingNarInfo = `StorePath: /nix/store/58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37
+URL: nar/58br4vk3q5akf4g8lx0pqzfhn47k3j8d-bash-5.2p37.nar
+Compression: none
+FileHash: sha256:0ccvd1lyd3icx3bs1asmhb5xw2yzz3c4bngdrjs3sgsb5vrjlxbz
+FileSize: 16
+NarHash: sha256:0ccvd1lyd3icx3bs1asmhb5xw2yzz3c4bngdrjs3sgsb5vrjlxbz
+NarSize: 16
+References: 
+`
+
+const narInfoName = "58br4vk3q5akf4g8lx0pqzfhn47k3j8d.narinfo"
+
+func (s *ProxySuite) writeNarInfo(c *C, content string) string {
+	path := filepath.Join(s.rootDir.String(), narInfoName)
+	c.Assert(os.WriteFile(path, []byte(content), os.FileMode(0644)), IsNil)
+	return path
+}
+
+func (s *ProxySuite) TestPushConflictIsRejected(c *C) {
+	path := s.writeNarInfo(c, existingNarInfo)
+	h := s.router(&ProxyConfig{AllowPush: true})
+	rec := s.do(h, http.MethodPut, "/"+narInfoName, conflictingNarInfo)
+	c.Check(rec.Code, Equals, http.StatusConflict)
+
+	content, err := os.ReadFile(path)
+	c.Assert(err, IsNil)
+	c.Check(string(content), Equals, existingNarInfo)
+}
+
+func (s *ProxySuite) TestPushOverwriteReplacesWholeFile(c *C) {
+	path := s.writeNarInfo(c, existingNarInfo)
+	h := s.router(&ProxyConfig{AllowPush: true, PushOverwrite: true})
+	rec := s.do(h, http.MethodPut, "/"+narInfoName, conflictingNarInfo)
+	c.Check(rec.Code, Equals, http.StatusOK)
+
+	content, err := os.ReadFile(path)
+	c.Assert(err, IsNil)
+	c.Check(string(content), Equals, rec.Body.String())
+	c.Check(strings.Contains(string(content), "Deriver"), Equals, false)
+}
