@@ -29,3 +29,11 @@ func (s *DerivationsSuite) TestShowOutputExtension(c *C) {
 	_, err := os.Stat(filepath.Join(outputRoot, "8ranqggwk67p5mii3vimljcb9jr0nliq-hello.drv.json"))
 	c.Check(err, IsNil)
 }
+
+func (s *DerivationsSuite) TestShowReportsErrors(c *C) {
+	drvPath := filepath.Join(c.MkDir(), "8ranqggwk67p5mii3vimljcb9jr0nliq-broken.drv")
+	c.Assert(os.WriteFile(drvPath, []byte("not a derivation"), os.FileMode(0644)), IsNil)
+	ret := entrypoint.Entrypoint([]string{"derivations", "show", drvPath},
+		io.NopCloser(new(bytes.Buffer)), io.Discard, io.Discard)
+	c.Check(ret, Not(Equals), 0)
+}

@@ -197,7 +197,7 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 	seenPathsMtx := new(sync.Mutex)
 	sem := semaphore.NewWeighted(int64(runtime.NumCPU()))
 
-	hadErrors := new(bool)
+	hadErrors := false
 
 	for len(nextPaths) > 0 {
 		wg := new(sync.WaitGroup)
@@ -205,10 +205,13 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 		nextPaths = []string{}
 		errCh := make(chan error)
 		ctx, cancelFn := context.WithCancel(cmdCtx.Ctx)
+		// errDone is closed once every error has been consumed, so hadErrors is safe to read.
+		errDone := make(chan struct{})
 		go func() {
+			defer close(errDone)
 			for err := range errCh {
 				if err != nil {
-					*hadErrors = true
+					hadErrors = true
 					cmdCtx.Logger.Error(err.Error())
 					if ctx.Err() == nil && strict {
 						cancelFn()
@@ -232,6 +235,7 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 					errCh <- errors.Join(&ErrDerivation{path}, err)
 					return
 				}
+				defer fh.Close()
 				drv, err := derivation.ReadDerivation(fh)
 				if err != nil {
 					errCh <- err
@@ -264,10 +268,12 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 			}()
 			return nil
 		})
-		cmdCtx.Logger.Info("Recursed Paths", zap.Int("next_paths", len(nextPaths)))
 		wg.Wait()
-		// Read paths should never fail
 		close(errCh)
+		<-errDone
+		cancelFn()
+		cmdCtx.Logger.Info("Recursed Paths", zap.Int("next_paths", len(nextPaths)))
+		// Read paths should never fail
 		if err != nil {
 			cmdCtx.Logger.Error("Error while processing paths", zap.Error(err))
 			break
@@ -275,7 +281,7 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 	}
 
 	cmdCtx.Logger.Info("Processed derivation paths", zap.Int("seen_paths", len(seenPaths)))
-	if *hadErrors {
+	if hadErrors {
 		return errors.New("encountered errors while processing paths")
 	}
 	return nil
