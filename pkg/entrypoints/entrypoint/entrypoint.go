@@ -303,6 +303,7 @@ func Entrypoint(args []string, stdIn io.ReadCloser, stdOut io.Writer, stdErr io.
 
 	if err := dispatchCommands(ctx, cmdCtx); err != nil {
 		logger.Error("Error from command", zap.Error(err))
+		return 1
 	}
 
 	logger.Debug("Exiting normally")
