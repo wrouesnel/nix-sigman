@@ -36,7 +36,9 @@ type CmdContext struct {
 	StdIn  io.ReadCloser
 	StdOut io.Writer
 	Fs     afero.Fs
-	Keys   *KeyConfig
+	// FsBackend is the name of the filesystem backend Fs was built from
+	FsBackend string
+	Keys      *KeyConfig
 }
 
 // LoadPrivateKeys loads all private keys from the configured files and command line.

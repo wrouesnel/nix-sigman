@@ -1,4 +1,4 @@
-package entrypoint
+package sign
 
 import (
 	"errors"
@@ -15,37 +15,36 @@ import (
 	"go.uber.org/zap"
 )
 
-//nolint:gochecknoglobals
-type SignConfig struct {
+type Cmd struct {
 	resigning.ResigningConfig `embed:""`
 	BackupNARInfos            bool     `help:"Make backups of NARinfo files" default:"false"`
 	SigningKeys               []string `help:"Names of keys to sign with (default all)" default:"*"`
 	NarInfoFiles              []string `arg:"" help:"NARInfo files to sign - specify - to read list from stdin"`
 }
 
-// Sign implements (re)-signing a NARInfo file
-func Sign(cmdCtx *CmdContext) error {
+// Run implements (re)-signing a NARInfo file
+func (c *Cmd) Run(cmdCtx *cmdutil.CmdContext) error {
 	l := cmdCtx.Logger
 
 	privateKeys, err := cmdCtx.Keys.LoadPrivateKeys(l)
 	if err != nil {
 		cmdCtx.Logger.Error("Error loading private keys", zap.Error(err))
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&cmdutil.ErrCommand{}, err)
 	}
 
 	l.Debug("Loading public keys")
 	publicKeys, err := cmdCtx.Keys.LoadPublicKeys(l)
 	if err != nil {
 		cmdCtx.Logger.Error("Error loading public keys", zap.Error(err))
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&cmdutil.ErrCommand{}, err)
 	}
 
 	signingKeys := []nixtypes.NamedPrivateKey{}
-	if lo.Contains(CLI.Sign.SigningKeys, "*") {
+	if lo.Contains(c.SigningKeys, "*") {
 		cmdCtx.Logger.Debug("Sign with ALL private keys")
 		signingKeys = privateKeys
 	} else {
-		desiredKeyNames := lo.SliceToMap(CLI.Sign.SigningKeys, func(item string) (string, struct{}) {
+		desiredKeyNames := lo.SliceToMap(c.SigningKeys, func(item string) (string, struct{}) {
 			return item, struct{}{}
 		})
 		signingKeys = lo.Filter(privateKeys, func(item nixtypes.NamedPrivateKey, index int) bool {
@@ -55,19 +54,19 @@ func Sign(cmdCtx *CmdContext) error {
 	l.Debug("Signing Keys Set", zap.Int("num_signing_keys", len(signingKeys)))
 
 	if len(signingKeys) == 0 {
-		return errors.Join(&ErrCommand{}, errors.New("no private keys selected"))
+		return errors.Join(&cmdutil.ErrCommand{}, errors.New("no private keys selected"))
 	}
 
 	var signers resigning.ConditionalResigners
-	if len(CLI.Sign.SigningMap) > 0 || CLI.Sign.SigningMapFile != "" {
+	if len(c.SigningMap) > 0 || c.SigningMapFile != "" {
 		l.Info("Conditional resigning requested")
 		signers, err = resigning.LoadSigningMap(l,
-			&CLI.Sign.ResigningConfig,
+			&c.ResigningConfig,
 			privateKeys,
 			publicKeys,
 		)
 		if err != nil {
-			return errors.Join(&ErrCommand{}, err)
+			return errors.Join(&cmdutil.ErrCommand{}, err)
 		}
 	} else {
 		l.Info("Unconditional resigning requested")
@@ -87,7 +86,7 @@ func Sign(cmdCtx *CmdContext) error {
 		})
 	}
 
-	err = readPaths(cmdCtx, slices.Values(CLI.Sign.NarInfoFiles), func(path *pathlib.Path) error {
+	err = cmdutil.ReadPaths(cmdCtx, slices.Values(c.NarInfoFiles), func(path *pathlib.Path) error {
 		l := cmdCtx.Logger.With(zap.String("path", path.String()))
 
 		ninfo, err := cmdutil.LoadNarInfo(l, path)
@@ -129,14 +128,14 @@ func Sign(cmdCtx *CmdContext) error {
 		if !didNewSignature {
 			cmdCtx.StdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path.String()), color.WhiteString("NOCHANGE"), strings.Join(signatureStrings, " "))))
 		} else {
-			if CLI.Sign.BackupNARInfos {
-				if err = backNinfo(l, path); err != nil {
+			if c.BackupNARInfos {
+				if err = cmdutil.BackupNarInfo(l, path); err != nil {
 					l.Warn("Failed to backup narinfo file - signing aborted", zap.Error(err))
 					return nil
 				}
 			}
 			// Ignore errors - write logs its own errors
-			_ = writeNInfo(l, path, ninfo)
+			_ = cmdCtx.WriteNarInfo(l, path, ninfo)
 			cmdCtx.StdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path.String()), color.YellowString("SIGNUPDT"), strings.Join(signatureStrings, " "))))
 		}
 

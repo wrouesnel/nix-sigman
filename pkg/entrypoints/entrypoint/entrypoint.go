@@ -17,9 +17,17 @@ import (
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/kongutil"
 	nix_http_cachefs "github.com/wrouesnel/nix-http-cachefs"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/bundle"
 	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/cmdutil"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/debug"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/derivations"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/newkey"
 	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/proxy"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/realizations"
 	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/serve"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/sign"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/validate"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/verify"
 	"go.uber.org/zap/zapcore"
 
 	"io"
@@ -49,47 +57,16 @@ var CLI struct {
 
 	Keys cmdutil.KeyConfig `embed:""`
 
-	Debug struct {
-		FromBytes struct {
-			Format string `arg:"" help:"Format to output as" enum:"nix32,base64,hex"`
-		} `cmd:"" help:"Output the given bytes as a specific format"`
-		ToBytes struct {
-			Format string `arg:"" help:"Format of the input" enum:"nix32,base64,hex"`
-		} `cmd:"" help:"Convert the given input bytes to a specific format"`
-		ConvertHash struct {
-			Hash string `arg:"" help:"Hash to convert (hex or nix)"`
-		} `cmd:"" help:"Convert between hex and Nix hash encodings"`
-		Fingerprint struct {
-			Paths []string `arg:"" help:"NARInfo files" type:"existingfile" `
-		} `cmd:"" help:"Generate the fingerprint for a NARInfo files"`
-		Sign struct {
-			Paths []string `arg:"" help:"NARInfo files" type:"existingfile" `
-		} `cmd:"" help:"Generate signatures for NARInfo files"`
-		GenerateKey struct {
-			Name string `arg:"" help:"Name of the key"`
-		} `cmd:"" help:"Generate a new key to stdout"`
-		PublicKey struct {
-		} `cmd:"" help:"Get public key from supplied key on stdin"`
-		ExtractTar struct {
-			Dryrun    bool   `help:"Don't actually extract anything'"`
-			Prefix    string `help:"Path prefix to match and remove while extracting"`
-			OutputDir string `arg:"" help:"Path to extract to" default:"."`
-			InputFile string `arg:"" help:"tar file (blank or - for stdin)" optional:"" default:"-"`
-		} `cmd:"" help:"Extract tarball containing a binary cache to the target"`
-		List struct {
-			Prefix string `help:"Prefix to list files under" default:"."`
-		} `cmd:"" help:"List all narinfo files in target"`
-	} `cmd:""`
-
-	Bundle       BundleConfig       `cmd:"" help:"Copy a NAR/NARInfo from the nix store"`
-	Sign         SignConfig         `cmd:"" help:"Sign a Nix archive"`
-	Verify       VerifyConfig       `cmd:"" help:"Verify a Nix archive signature"`
-	Validate     ValidateConfig     `cmd:"" help:"Validate a NarInfo file format"`
-	Derivations  DerivationsConfig  `cmd:"" help:"Manipulate derivations"`
-	Realizations RealizationsConfig `cmd:"" help:"Manipulate binary packages"`
-	Proxy        proxy.ProxyConfig  `cmd:"" help:"Serve a binary cache with resigning"`
-	Serve        serve.ServeConfig  `cmd:"" help:"Serve a local nix store"`
-	NewKey       NewKeyConfig       `cmd:"" help:"Generate a new signing keypair for the current user"`
+	Debug        debug.Cmd         `cmd:""`
+	Bundle       bundle.Cmd        `cmd:"" help:"Copy a NAR/NARInfo from the nix store"`
+	Sign         sign.Cmd          `cmd:"" help:"Sign a Nix archive"`
+	Verify       verify.Cmd        `cmd:"" help:"Verify a Nix archive signature"`
+	Validate     validate.Cmd      `cmd:"" help:"Validate a NarInfo file format"`
+	Derivations  derivations.Cmd   `cmd:"" help:"Manipulate derivations"`
+	Realizations realizations.Cmd  `cmd:"" help:"Manipulate binary packages"`
+	Proxy        proxy.ProxyConfig `cmd:"" help:"Serve a binary cache with resigning"`
+	Serve        serve.ServeConfig `cmd:"" help:"Serve a local nix store"`
+	NewKey       newkey.Cmd        `cmd:"" help:"Generate a new signing keypair for the current user"`
 }
 
 // Entrypoint is the real application entrypoint. This structure allows test packages to E2E-style tests invoking commmands
@@ -178,12 +155,13 @@ func Entrypoint(args []string, stdIn io.ReadCloser, stdOut io.Writer, stdErr io.
 	//logger.Info("Configuring asset handling", zap.Bool("use-filesystem", CLI.Assets.UseFilesystem))
 	//assets.UseFilesystem(CLI.Assets.UseFilesystem)
 
-	cmdCtx := &CmdContext{
-		Logger: logger,
-		Ctx:    sigCtx,
-		StdIn:  stdIn,
-		StdOut: stdOut,
-		Keys:   &CLI.Keys,
+	cmdCtx := &cmdutil.CmdContext{
+		Logger:    logger,
+		Ctx:       sigCtx,
+		StdIn:     stdIn,
+		StdOut:    stdOut,
+		FsBackend: CLI.FsBackend,
+		Keys:      &CLI.Keys,
 	}
 
 	switch CLI.FsBackend {
@@ -299,8 +277,9 @@ func Entrypoint(args []string, stdIn io.ReadCloser, stdOut io.Writer, stdErr io.
 		return 1
 	}
 
-	if err := dispatchCommands(ctx, cmdCtx); err != nil {
-		logger.Error("Error from command", zap.Error(err))
+	// Dispatch to the Run() method of the selected command
+	if err := ctx.Run(cmdCtx); err != nil {
+		logger.Error("Error from command", zap.String("command", ctx.Command()), zap.Error(err))
 		return 1
 	}
 

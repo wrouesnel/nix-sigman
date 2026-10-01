@@ -48,6 +48,11 @@ type ServeConfig struct {
 	//CacheFsOpts               string   `help:"Filesystem backend optional config" default:""`
 }
 
+// Run implements the serve command.
+func (c *ServeConfig) Run(cmdCtx *cmdutil.CmdContext) error {
+	return Serve(cmdCtx, c)
+}
+
 // Serve implements a Nix HTTP cache server by reading an extant `/nix` directory
 // in flatfile format. It is possible, though not advised, to share this with a system
 // nix-daemon.

@@ -1,4 +1,4 @@
-package entrypoint
+package cmdutil
 
 import (
 	"bufio"
@@ -18,9 +18,9 @@ import (
 	"go.uber.org/zap"
 )
 
-// readNinfoFromPaths reads a list of paths and optionally reads an additional file from
+// ReadNinfoFromPaths reads a list of paths and optionally reads an additional file from
 // stdin (if "-" is specified in the path list).
-func readNinfoFromPaths(cmdCtx *CmdContext, paths []string, cb func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error) error {
+func ReadNinfoFromPaths(cmdCtx *CmdContext, paths []string, cb func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error) error {
 	var commandErr error
 	readStdin := false
 	if lo.Contains(paths, "-") {
@@ -72,8 +72,8 @@ func readNinfoFromPaths(cmdCtx *CmdContext, paths []string, cb func(path *pathli
 	return commandErr
 }
 
-// readPaths allows reading a list of paths
-func readPaths(ctx *CmdContext, paths iter.Seq[string], cb func(path *pathlib.Path) error) error {
+// ReadPaths allows reading a list of paths
+func ReadPaths(ctx *CmdContext, paths iter.Seq[string], cb func(path *pathlib.Path) error) error {
 	readStdin := false
 
 	for path := range paths {
@@ -116,9 +116,9 @@ func readPaths(ctx *CmdContext, paths iter.Seq[string], cb func(path *pathlib.Pa
 	return nil
 }
 
-// narHashCheck checks the actual file hash.
+// NarHashCheck checks the actual file hash.
 // TODO: consider moving to a NarInfo function.
-func narHashCheck(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) (bool, nixtypes.TypedNixHash, error) {
+func NarHashCheck(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) (bool, nixtypes.TypedNixHash, error) {
 	narPath := path.Parent().Join(ninfo.URL)
 	nl := l.With(zap.String("nar_path", narPath.String()))
 	nl.Debug("Hash Verification")
@@ -146,7 +146,8 @@ func narHashCheck(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) (bo
 	return bytes.Equal(obtainedHash.Hash, ninfo.FileHash.Hash), obtainedHash, nil
 }
 
-func backNinfo(l *zap.Logger, path *pathlib.Path) error {
+// BackupNarInfo writes a .bak copy of the NARInfo file alongside the original.
+func BackupNarInfo(l *zap.Logger, path *pathlib.Path) error {
 	// Write the backup through the same filesystem as the original (which may not be the OS).
 	backupPath := path.Parent().Join(fmt.Sprintf("%s.bak", path.Name()))
 	oldNarBytes, err := path.ReadFile()
@@ -159,10 +160,10 @@ func backNinfo(l *zap.Logger, path *pathlib.Path) error {
 	return nil
 }
 
-// outputDir adapts the output directory path based on the backing file handler type
+// NormalizeOutputDir adapts the output directory path based on the backing file handler type
 // namely "." gets reinterpreted as bucket root in S3 mode.
-func NormalizeOutputDir(outputDir string) string {
-	switch CLI.FsBackend {
+func (c *CmdContext) NormalizeOutputDir(outputDir string) string {
+	switch c.FsBackend {
 	case "s3":
 		if strings.HasPrefix(outputDir, ".") {
 			outputDir = fmt.Sprintf("/%s", outputDir[1:])
@@ -176,14 +177,16 @@ func NormalizeOutputDir(outputDir string) string {
 	}
 }
 
-func writeNInfo(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) error {
+// WriteNarInfo writes the NARInfo file to path, using an atomic replace where the
+// filesystem backend supports it.
+func (c *CmdContext) WriteNarInfo(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) error {
 	newPath := path.Parent().Join(fmt.Sprintf("%s.new", path.Name()))
 	newBytes, err := ninfo.MarshalText()
 	if err != nil {
 		l.Warn("Failed to serialize narinfo file - signing aborted", zap.Error(err))
 		return err
 	}
-	switch CLI.FsBackend {
+	switch c.FsBackend {
 	case "s3", "nix-http-cache":
 		// For S3, just do an in-place PUT
 		// While the nix-cache-http FS can't (yet) write files, if it could, then

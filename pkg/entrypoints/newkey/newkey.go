@@ -1,10 +1,11 @@
-package entrypoint
+package newkey
 
 import (
 	"errors"
 	"fmt"
 	"github.com/chigopher/pathlib"
 	"github.com/ncruces/go-strftime"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/cmdutil"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
 	"os"
@@ -12,21 +13,20 @@ import (
 	"time"
 )
 
-//nolint:gochecknoglobals
-type NewKeyConfig struct {
+type Cmd struct {
 	OutputDir       string `help:"output directory for the generated keys" default:"."`
 	PrivateKeyExt   string `help:"private key file extension" default:"key"`
 	PublicKeyExt    string `help:"public key file extension" default:"pub"`
 	NoPublicKeyFile bool   `help:"do not emit a file for the public key"`
 }
 
-// NewKey implements a simple way to generate well formed signing keys
-func NewKey(cmdCtx *CmdContext) error {
+// Run implements a simple way to generate well formed signing keys
+func (c *Cmd) Run(cmdCtx *cmdutil.CmdContext) error {
 	l := cmdCtx.Logger
 
 	currentUser, err := user.Current()
 	if err != nil {
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&cmdutil.ErrCommand{}, err)
 	}
 
 	timestamp := strftime.Format("%Y-%m-%d-%H-%M-%S", time.Now())
@@ -35,32 +35,32 @@ func NewKey(cmdCtx *CmdContext) error {
 
 	privateKey, err := nixtypes.GeneratePrivateKey(keyName)
 	if err != nil {
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&cmdutil.ErrCommand{}, err)
 	}
 
-	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.NewKey.OutputDir), pathlib.PathWithAfero(cmdCtx.Fs)).Clean()
+	outputDir := pathlib.NewPath(cmdCtx.NormalizeOutputDir(c.OutputDir), pathlib.PathWithAfero(cmdCtx.Fs)).Clean()
 	l.Debug("Ensuring output directory exists", zap.String("output_dir", outputDir.String()))
 	if outputDir.Name() != "/" {
 		if err := outputDir.MkdirAllMode(os.FileMode(0755)); err != nil {
-			return errors.Join(&ErrCommand{}, errors.New("could not make output directory"), err)
+			return errors.Join(&cmdutil.ErrCommand{}, errors.New("could not make output directory"), err)
 		}
 	}
 
-	privateKeyFile := outputDir.Join(fmt.Sprintf("%s.%s", keyName, CLI.NewKey.PrivateKeyExt))
-	publicKeyFile := outputDir.Join(fmt.Sprintf("%s.%s", keyName, CLI.NewKey.PublicKeyExt))
+	privateKeyFile := outputDir.Join(fmt.Sprintf("%s.%s", keyName, c.PrivateKeyExt))
+	publicKeyFile := outputDir.Join(fmt.Sprintf("%s.%s", keyName, c.PublicKeyExt))
 
 	// Private keys must not be readable by other users.
 	err = privateKeyFile.WriteFileMode([]byte(fmt.Sprintf("%s\n", privateKey.String())), os.FileMode(0600))
 	if err != nil {
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&cmdutil.ErrCommand{}, err)
 	}
 
 	publicKey := privateKey.PublicKey()
 
-	if !CLI.NewKey.NoPublicKeyFile {
+	if !c.NoPublicKeyFile {
 		err = publicKeyFile.WriteFile([]byte(fmt.Sprintf("%s\n", publicKey.String())))
 		if err != nil {
-			return errors.Join(&ErrCommand{}, err)
+			return errors.Join(&cmdutil.ErrCommand{}, err)
 		}
 	}
 

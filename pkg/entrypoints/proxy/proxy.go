@@ -36,6 +36,11 @@ type ProxyConfig struct {
 	Root                      string                    `arg:"" help:"Root path of the binary cache"`
 }
 
+// Run implements the proxy command.
+func (c *ProxyConfig) Run(cmdCtx *cmdutil.CmdContext) error {
+	return Proxy(cmdCtx, c)
+}
+
 // Proxy implements the dynamic resigning server
 func Proxy(cmdCtx *cmdutil.CmdContext, cfg *ProxyConfig) error {
 	l := cmdCtx.Logger

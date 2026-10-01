@@ -1,4 +1,4 @@
-package entrypoint
+package debug
 
 import (
 	"archive/tar"
@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/chigopher/pathlib"
 	"github.com/fatih/color"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/cmdutil"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
 	"io"
@@ -16,14 +17,65 @@ import (
 	"strings"
 )
 
-func DebugToBytes(cmdCtx *CmdContext) error {
+// Cmd groups the debugging subcommands.
+type Cmd struct {
+	FromBytes   FromBytesCmd   `cmd:"" help:"Output the given bytes as a specific format"`
+	ToBytes     ToBytesCmd     `cmd:"" help:"Convert the given input bytes to a specific format"`
+	ConvertHash ConvertHashCmd `cmd:"" help:"Convert between hex and Nix hash encodings"`
+	Fingerprint FingerprintCmd `cmd:"" help:"Generate the fingerprint for a NARInfo files"`
+	Sign        SignCmd        `cmd:"" help:"Generate signatures for NARInfo files"`
+	GenerateKey GenerateKeyCmd `cmd:"" help:"Generate a new key to stdout"`
+	PublicKey   PublicKeyCmd   `cmd:"" help:"Get public key from supplied key on stdin"`
+	ExtractTar  ExtractTarCmd  `cmd:"" help:"Extract tarball containing a binary cache to the target"`
+	List        ListCmd        `cmd:"" help:"List all narinfo files in target"`
+}
+
+type FromBytesCmd struct {
+	Format string `arg:"" help:"Format to output as" enum:"nix32,base64,hex"`
+}
+
+type ToBytesCmd struct {
+	Format string `arg:"" help:"Format of the input" enum:"nix32,base64,hex"`
+}
+
+type ConvertHashCmd struct {
+	Hash string `arg:"" help:"Hash to convert (hex or nix)"`
+}
+
+type FingerprintCmd struct {
+	Paths []string `arg:"" help:"NARInfo files" type:"existingfile" `
+}
+
+type SignCmd struct {
+	Paths []string `arg:"" help:"NARInfo files" type:"existingfile" `
+}
+
+type GenerateKeyCmd struct {
+	Name string `arg:"" help:"Name of the key"`
+}
+
+type PublicKeyCmd struct {
+}
+
+type ExtractTarCmd struct {
+	Dryrun    bool   `help:"Don't actually extract anything'"`
+	Prefix    string `help:"Path prefix to match and remove while extracting"`
+	OutputDir string `arg:"" help:"Path to extract to" default:"."`
+	InputFile string `arg:"" help:"tar file (blank or - for stdin)" optional:"" default:"-"`
+}
+
+type ListCmd struct {
+	Prefix string `help:"Prefix to list files under" default:"."`
+}
+
+func (c *ToBytesCmd) Run(cmdCtx *cmdutil.CmdContext) error {
 	text, err := io.ReadAll(cmdCtx.StdIn)
 	if err != nil {
 		cmdCtx.Logger.Error("Error while reading input")
 		return err
 	}
 
-	switch CLI.Debug.ToBytes.Format {
+	switch c.Format {
 	case "nix32":
 		field := nixtypes.NixBase32Field{}
 		if err := field.UnmarshalText(text); err != nil {
@@ -51,14 +103,14 @@ func DebugToBytes(cmdCtx *CmdContext) error {
 	return nil
 }
 
-func DebugFromBytes(cmdCtx *CmdContext) error {
+func (c *FromBytesCmd) Run(cmdCtx *cmdutil.CmdContext) error {
 	b, err := io.ReadAll(cmdCtx.StdIn)
 	if err != nil {
 		cmdCtx.Logger.Error("Error while reading input")
 		return err
 	}
 
-	switch CLI.Debug.FromBytes.Format {
+	switch c.Format {
 	case "nix32":
 		cmdCtx.StdOut.Write([]byte(nixtypes.NixBase32Field(b).String()))
 	case "base64":
@@ -70,8 +122,8 @@ func DebugFromBytes(cmdCtx *CmdContext) error {
 	return nil
 }
 
-func DebugConvertHash(cmdCtx *CmdContext) error {
-	hashStr := CLI.Debug.ConvertHash.Hash
+func (c *ConvertHashCmd) Run(cmdCtx *cmdutil.CmdContext) error {
+	hashStr := c.Hash
 	prefix, hash, found := strings.Cut(hashStr, ":")
 	if !found {
 		prefix = ""
@@ -104,22 +156,22 @@ func DebugConvertHash(cmdCtx *CmdContext) error {
 	return nil
 }
 
-func DebugGenerateKey(cmdCtx *CmdContext) error {
-	privateKey, err := nixtypes.GeneratePrivateKey(CLI.Debug.GenerateKey.Name)
+func (c *GenerateKeyCmd) Run(cmdCtx *cmdutil.CmdContext) error {
+	privateKey, err := nixtypes.GeneratePrivateKey(c.Name)
 	if err != nil {
 		cmdCtx.Logger.Error("Failed generating private key", zap.Error(err))
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&cmdutil.ErrCommand{}, err)
 	}
 	cmdCtx.StdOut.Write([]byte(privateKey.String()))
 	cmdCtx.StdOut.Write([]byte("\n"))
 	return nil
 }
 
-func DebugPublicKey(cmdCtx *CmdContext) error {
+func (c *PublicKeyCmd) Run(cmdCtx *cmdutil.CmdContext) error {
 	privateKeys, err := nixtypes.ParsePrivateKeys(cmdCtx.StdIn)
 	if err != nil {
 		cmdCtx.Logger.Error("Failed reading private keys", zap.Error(err))
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&cmdutil.ErrCommand{}, err)
 	}
 	for _, key := range privateKeys {
 		publicKey := key.PublicKey()
@@ -130,22 +182,22 @@ func DebugPublicKey(cmdCtx *CmdContext) error {
 	return nil
 }
 
-func DebugFingerprint(cmdCtx *CmdContext) error {
-	err := readNinfoFromPaths(cmdCtx, CLI.Debug.Fingerprint.Paths, func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
+func (c *FingerprintCmd) Run(cmdCtx *cmdutil.CmdContext) error {
+	err := cmdutil.ReadNinfoFromPaths(cmdCtx, c.Paths, func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
 		cmdCtx.StdOut.Write([]byte(fmt.Sprintf("%s:%s\n", color.CyanString(path.String()), ninfo.Fingerprint())))
 		return nil
 	})
 	return err
 }
 
-func DebugSign(cmdCtx *CmdContext) error {
+func (c *SignCmd) Run(cmdCtx *cmdutil.CmdContext) error {
 	privateKeys, err := cmdCtx.Keys.LoadPrivateKeys(cmdCtx.Logger)
 	if err != nil {
 		cmdCtx.Logger.Error("Error loading private keys", zap.Error(err))
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&cmdutil.ErrCommand{}, err)
 	}
 
-	err = readNinfoFromPaths(cmdCtx, CLI.Debug.Sign.Paths, func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
+	err = cmdutil.ReadNinfoFromPaths(cmdCtx, c.Paths, func(path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
 		for _, key := range privateKeys {
 			value, err := ninfo.MakeSignature(key)
 			if err != nil {
@@ -158,23 +210,23 @@ func DebugSign(cmdCtx *CmdContext) error {
 	return err
 }
 
-// DebugExtractTar implements a basic helper function to extract a tarball and filter
+// Run implements a basic helper function to extract a tarball and filter
 // paths.
-func DebugExtractTar(cmdCtx *CmdContext) error {
+func (c *ExtractTarCmd) Run(cmdCtx *cmdutil.CmdContext) error {
 	l := cmdCtx.Logger
-	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Debug.ExtractTar.OutputDir), pathlib.PathWithAfero(cmdCtx.Fs)).Clean()
+	outputDir := pathlib.NewPath(cmdCtx.NormalizeOutputDir(c.OutputDir), pathlib.PathWithAfero(cmdCtx.Fs)).Clean()
 	l.Debug("Ensuring output directory exists", zap.String("output_dir", outputDir.String()))
 	if outputDir.Name() != "/" {
 		if err := outputDir.MkdirAllMode(os.FileMode(0755)); err != nil {
-			return errors.Join(&ErrCommand{}, errors.New("could not make output directory"), err)
+			return errors.Join(&cmdutil.ErrCommand{}, errors.New("could not make output directory"), err)
 		}
 	}
 
 	reader := cmdCtx.StdIn
-	if CLI.Debug.ExtractTar.InputFile != "-" && CLI.Debug.ExtractTar.InputFile != "" {
-		inputFile, err := os.Open(CLI.Debug.ExtractTar.InputFile)
+	if c.InputFile != "-" && c.InputFile != "" {
+		inputFile, err := os.Open(c.InputFile)
 		if err != nil {
-			return errors.Join(&ErrCommand{}, err)
+			return errors.Join(&cmdutil.ErrCommand{}, err)
 		}
 		defer inputFile.Close()
 		reader = inputFile
@@ -188,23 +240,23 @@ func DebugExtractTar(cmdCtx *CmdContext) error {
 		}
 		if err != nil {
 			l.Error("Error while reading tar file", zap.Error(err))
-			return errors.Join(&ErrCommand{}, err)
+			return errors.Join(&cmdutil.ErrCommand{}, err)
 		}
 
 		cleanedPath := filepath.Clean(header.Name)
-		if strings.HasPrefix(cleanedPath, CLI.Debug.ExtractTar.Prefix) {
-			destPathStr := strings.TrimPrefix(cleanedPath, CLI.Debug.ExtractTar.Prefix)
+		if strings.HasPrefix(cleanedPath, c.Prefix) {
+			destPathStr := strings.TrimPrefix(cleanedPath, c.Prefix)
 			fields := []zap.Field{zap.String("archive_path", cleanedPath), zap.String("dest_path", destPathStr)}
 			// Never allow an archive entry to write outside of the output directory.
 			if relPath := strings.TrimLeft(destPathStr, string(filepath.Separator)); relPath != "" && !filepath.IsLocal(relPath) {
 				l.Warn("Skipping archive entry which would extract outside the output directory", fields...)
 				continue
 			}
-			if CLI.Debug.ExtractTar.Dryrun {
-				fields = append(fields, zap.Bool("dryrun", CLI.Debug.ExtractTar.Dryrun))
+			if c.Dryrun {
+				fields = append(fields, zap.Bool("dryrun", c.Dryrun))
 			}
 			l.Debug("Extracting", fields...)
-			if CLI.Debug.ExtractTar.Dryrun {
+			if c.Dryrun {
 				continue
 			}
 			destPath := outputDir.Join(destPathStr).Clean()
@@ -217,19 +269,19 @@ func DebugExtractTar(cmdCtx *CmdContext) error {
 				// Just make directories
 				if err := destPath.MkdirAllMode(os.FileMode(0755)); err != nil {
 					l.Error("Could not create destination path", zap.Error(err))
-					return errors.Join(&ErrCommand{}, err)
+					return errors.Join(&cmdutil.ErrCommand{}, err)
 				}
 			} else {
 				exists, err := destPath.Exists()
 				if err != nil {
 					l.Error("Could not check path existence", zap.Error(err))
-					return errors.Join(&ErrCommand{}, err)
+					return errors.Join(&cmdutil.ErrCommand{}, err)
 				}
 				if exists {
 					destSize, err := destPath.Size()
 					if err != nil {
 						l.Error("Could not check path size", zap.Error(err))
-						return errors.Join(&ErrCommand{}, err)
+						return errors.Join(&cmdutil.ErrCommand{}, err)
 					}
 					if destSize == header.Size {
 						l.Debug("Skipped (exists and size matches)", fields...)
@@ -239,7 +291,7 @@ func DebugExtractTar(cmdCtx *CmdContext) error {
 					err = destPath.Remove()
 					if err != nil {
 						l.Error("Could not remove incomplete file", zap.Error(err))
-						return errors.Join(&ErrCommand{}, err)
+						return errors.Join(&cmdutil.ErrCommand{}, err)
 					}
 				}
 
@@ -261,7 +313,7 @@ func DebugExtractTar(cmdCtx *CmdContext) error {
 					return nil
 				}()
 				if err != nil {
-					return errors.Join(&ErrCommand{}, err)
+					return errors.Join(&cmdutil.ErrCommand{}, err)
 				}
 			}
 		}
@@ -270,14 +322,14 @@ func DebugExtractTar(cmdCtx *CmdContext) error {
 	return nil
 }
 
-// DebugList will list all the objects from the given path.
-func DebugList(cmdCtx *CmdContext) error {
+// Run will list all the objects from the given path.
+func (c *ListCmd) Run(cmdCtx *cmdutil.CmdContext) error {
 	l := cmdCtx.Logger
-	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Debug.List.Prefix), pathlib.PathWithAfero(cmdCtx.Fs)).Clean()
+	outputDir := pathlib.NewPath(cmdCtx.NormalizeOutputDir(c.Prefix), pathlib.PathWithAfero(cmdCtx.Fs)).Clean()
 	l.Info("Reading directory (this may take a while)")
 	dirNames, err := outputDir.ReadDir()
 	if err != nil {
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&cmdutil.ErrCommand{}, err)
 	}
 	for _, name := range dirNames {
 		if strings.HasSuffix(name.Name(), ".narinfo") {

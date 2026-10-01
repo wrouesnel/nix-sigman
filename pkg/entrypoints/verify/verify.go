@@ -1,4 +1,4 @@
-package entrypoint
+package verify
 
 import (
 	"errors"
@@ -14,8 +14,7 @@ import (
 	"go.uber.org/zap"
 )
 
-//nolint:gochecknoglobals
-type VerifyConfig struct {
+type Cmd struct {
 	ValidateHashes     bool     `help:"Validate file hashes of archive files" default:"false"`
 	IncludePrivateKeys bool     `help:"Private Keys should also be used for trust" default:"false"`
 	TrustedKeys        []string `help:"Names of keys to verify with (default all)" default:"*"`
@@ -23,20 +22,20 @@ type VerifyConfig struct {
 	NarInfoFiles []string `arg:"" help:"NARInfo files. - to read from stdin"`
 }
 
-// Verify implements NARInfo and archive verification
-func Verify(cmdCtx *CmdContext) error {
+// Run implements NARInfo and archive verification
+func (c *Cmd) Run(cmdCtx *cmdutil.CmdContext) error {
 	publicKeys, err := cmdCtx.Keys.LoadPublicKeys(cmdCtx.Logger)
 	if err != nil {
 		cmdCtx.Logger.Error("Error loading public keys", zap.Error(err))
-		return errors.Join(&ErrCommand{}, err)
+		return errors.Join(&cmdutil.ErrCommand{}, err)
 	}
 
-	if CLI.Verify.IncludePrivateKeys {
+	if c.IncludePrivateKeys {
 		cmdCtx.Logger.Debug("Including private keys for verification")
 		privateKeys, err := cmdCtx.Keys.LoadPrivateKeys(cmdCtx.Logger)
 		if err != nil {
 			cmdCtx.Logger.Error("Error loading private keys", zap.Error(err))
-			return errors.Join(&ErrCommand{}, err)
+			return errors.Join(&cmdutil.ErrCommand{}, err)
 		}
 		for _, key := range privateKeys {
 			publicKeys = append(publicKeys, key.PublicKey())
@@ -44,11 +43,11 @@ func Verify(cmdCtx *CmdContext) error {
 	}
 
 	verifyKeys := []nixtypes.NamedPublicKey{}
-	if lo.Contains(CLI.Verify.TrustedKeys, "*") {
+	if lo.Contains(c.TrustedKeys, "*") {
 		cmdCtx.Logger.Debug("Verify against ALL public keys")
 		verifyKeys = publicKeys
 	} else {
-		desiredKeyNames := lo.SliceToMap(CLI.Verify.TrustedKeys, func(item string) (string, struct{}) {
+		desiredKeyNames := lo.SliceToMap(c.TrustedKeys, func(item string) (string, struct{}) {
 			return item, struct{}{}
 		})
 		verifyKeys = lo.Filter(publicKeys, func(item nixtypes.NamedPublicKey, index int) bool {
@@ -58,10 +57,10 @@ func Verify(cmdCtx *CmdContext) error {
 	cmdCtx.Logger.Debug("Signing Keys Set", zap.Int("num_trusted_keys", len(verifyKeys)))
 
 	if len(verifyKeys) == 0 {
-		return errors.Join(&ErrCommand{}, errors.New("no public keys selected"))
+		return errors.Join(&cmdutil.ErrCommand{}, errors.New("no public keys selected"))
 	}
 
-	err = readPaths(cmdCtx, slices.Values(CLI.Verify.NarInfoFiles), func(path *pathlib.Path) error {
+	err = cmdutil.ReadPaths(cmdCtx, slices.Values(c.NarInfoFiles), func(path *pathlib.Path) error {
 		cmdCtx.StdOut.Write([]byte(fmt.Sprintf("%s:", color.CyanString(path.String()))))
 
 		l := cmdCtx.Logger.With(zap.String("path", path.String()))
@@ -89,8 +88,8 @@ func Verify(cmdCtx *CmdContext) error {
 		})
 
 		if len(verifiedKeys) > 0 {
-			if CLI.Verify.ValidateHashes {
-				hashValid, _, err := narHashCheck(l, path, ninfo)
+			if c.ValidateHashes {
+				hashValid, _, err := cmdutil.NarHashCheck(l, path, ninfo)
 				if hashValid {
 					cmdCtx.StdOut.Write([]byte(color.GreenString("GOODHASH")))
 				} else if err != nil || !hashValid {
@@ -106,8 +105,8 @@ func Verify(cmdCtx *CmdContext) error {
 			cmdCtx.StdOut.Write([]byte(color.RedString("FAILSIGN")))
 			cmdCtx.StdOut.Write([]byte(":"))
 			// Check hash anyway but don't report anything positive
-			if CLI.Verify.ValidateHashes {
-				hashValid, _, err := narHashCheck(l, path, ninfo)
+			if c.ValidateHashes {
+				hashValid, _, err := cmdutil.NarHashCheck(l, path, ninfo)
 				if hashValid {
 					cmdCtx.StdOut.Write([]byte(color.GreenString("Hash OK")))
 				} else if err != nil || !hashValid {

@@ -1,9 +1,10 @@
-package entrypoint
+package realizations
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/cmdutil"
 	"io"
 	"path/filepath"
 	"runtime"
@@ -18,18 +19,22 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-type RealizationsConfig struct {
-	StoreRoot string `help:"Path to the store root to search for dependencies" type:"path" default:"/nix/store"`
-	List      struct {
-		Strict bool     `help:"If true then abort if any derivation fails to parse"`
-		Paths  []string `arg:"" help:"Nix Paths"`
-	} `cmd:"" help:"List all dependencies of the given package"`
+// Cmd groups the realization subcommands.
+type Cmd struct {
+	StoreRoot string  `help:"Path to the store root to search for dependencies" type:"path" default:"/nix/store"`
+	List      ListCmd `cmd:"" help:"List all dependencies of the given package"`
 }
 
-func RealizationsList(cmdCtx *CmdContext) error {
+type ListCmd struct {
+	Strict bool     `help:"If true then abort if any derivation fails to parse"`
+	Paths  []string `arg:"" help:"Nix Paths"`
+}
+
+// Run lists the given packages and all of their dependencies.
+func (c *ListCmd) Run(cmdCtx *cmdutil.CmdContext, parent *Cmd) error {
 	inputUrls := mapset.NewSet[string]()
-	err := recurseRealizations(cmdCtx.Logger, cmdCtx, CLI.Realizations.List.Paths, true, CLI.Realizations.List.Strict,
-		CLI.Realizations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
+	err := recurseRealizations(cmdCtx.Logger, cmdCtx, c.Paths, true, c.Strict,
+		parent.StoreRoot, func(cmdCtx *cmdutil.CmdContext, path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
 			inputUrls.Add(path.String())
 			return nil
 		})
@@ -54,8 +59,8 @@ func (e ErrNinfo) Error() string {
 }
 
 // recurseRealizations follows derivations and calls a function against each one.
-func recurseRealizations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recurse bool, strict bool, storeRoot string,
-	cb func(cmdCtx *CmdContext, path *pathlib.Path, ninfo *nixtypes.NarInfo) error) error {
+func recurseRealizations(l *zap.Logger, cmdCtx *cmdutil.CmdContext, paths []string, recurse bool, strict bool, storeRoot string,
+	cb func(cmdCtx *cmdutil.CmdContext, path *pathlib.Path, ninfo *nixtypes.NarInfo) error) error {
 	nextPaths := paths[:]
 	seenPaths := map[string]struct{}{}
 	seenPathsMtx := new(sync.Mutex)
@@ -83,7 +88,7 @@ func recurseRealizations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recu
 				}
 			}
 		}()
-		err := readPaths(cmdCtx, slices.Values(currentPaths), func(path *pathlib.Path) error {
+		err := cmdutil.ReadPaths(cmdCtx, slices.Values(currentPaths), func(path *pathlib.Path) error {
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
 			}

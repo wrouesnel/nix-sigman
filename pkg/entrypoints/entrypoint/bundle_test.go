@@ -10,6 +10,7 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/entrypoint"
+	"github.com/wrouesnel/nix-sigman/pkg/nixconsts"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	. "gopkg.in/check.v1"
 )
@@ -70,7 +71,7 @@ func (s *BundleSuite) TestBundle(c *C) {
 	c.Check(ninfo.References, DeepEquals, []string{
 		"aaaavk3q5akf4g8lx0pqzfhn47k3j8d-a", "zzzzvk3q5akf4g8lx0pqzfhn47k3j8d-z"})
 
-	cacheInfo, err := os.ReadFile(filepath.Join(outputDir, entrypoint.NixCacheInfoName))
+	cacheInfo, err := os.ReadFile(filepath.Join(outputDir, nixconsts.NixCacheInfoName))
 	c.Assert(err, IsNil)
 	c.Check(string(cacheInfo), Matches, fmt.Sprintf("(?s)StoreDir: %s\n.*", storeDir))
 }

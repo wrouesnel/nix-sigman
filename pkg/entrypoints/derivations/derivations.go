@@ -1,10 +1,11 @@
-package entrypoint
+package derivations
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/cmdutil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -23,31 +24,35 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
-//nolint:gochecknoglobals
-type DerivationsConfig struct {
+// Cmd groups the derivation subcommands.
+type Cmd struct {
 	StoreRoot string `help:"Path to the store root to search for dependencies" type:"path" default:"/"`
 	//DrvFiles  []string `arg:"" help:"Derivation paths"`
-	Show struct {
-		Recurse    bool     `help:"Follow input derivations"`
-		OutputRoot *string  `help:"Write outputs to a directory instead of stdout" type:"path"`
-		Format     string   `help:"format" enum:"json,json-compact,yaml" default:"json"`
-		Paths      []string `arg:"" help:"Derivation paths"`
-	} `cmd:"" help:"JSON format a derivation"`
-	Urls struct {
-		Strict bool `help:"If true then abort if any derivation fails to parse"`
-		//CombineEquivalents   bool     `help:"Combine substitutions which produce multiple paths onto a single space separated line"`
-		EmitTarballCacheUrls bool     `help:"If a derivation includes a hash then emit a tarball hash URL as well"`
-		TarballCacheBaseUrl  string   `default:"https://tarballs.nixos.org" help:"Tarball cache URL to generate"`
-		GuessUrlTypes        bool     `help:"Modify URLs with application hints e.g. git+https - this is heuristic"`
-		IncludeNixPaths      bool     `help:"Include Nix paths at the end of the list"`
-		Paths                []string `arg:"" help:"Derivation paths"`
-	} `cmd:"" help:"Recursively follow derivations and extract source input URLs"`
+	Show ShowCmd `cmd:"" help:"JSON format a derivation"`
+	Urls UrlsCmd `cmd:"" help:"Recursively follow derivations and extract source input URLs"`
 }
 
-// DerivationRecurse recursively follows a derivation until it find the
+type ShowCmd struct {
+	Recurse    bool     `help:"Follow input derivations"`
+	OutputRoot *string  `help:"Write outputs to a directory instead of stdout" type:"path"`
+	Format     string   `help:"format" enum:"json,json-compact,yaml" default:"json"`
+	Paths      []string `arg:"" help:"Derivation paths"`
+}
+
+type UrlsCmd struct {
+	Strict bool `help:"If true then abort if any derivation fails to parse"`
+	//CombineEquivalents   bool     `help:"Combine substitutions which produce multiple paths onto a single space separated line"`
+	EmitTarballCacheUrls bool     `help:"If a derivation includes a hash then emit a tarball hash URL as well"`
+	TarballCacheBaseUrl  string   `default:"https://tarballs.nixos.org" help:"Tarball cache URL to generate"`
+	GuessUrlTypes        bool     `help:"Modify URLs with application hints e.g. git+https - this is heuristic"`
+	IncludeNixPaths      bool     `help:"Include Nix paths at the end of the list"`
+	Paths                []string `arg:"" help:"Derivation paths"`
+}
+
+// Run recursively follows a derivation until it find the
 // source roots.
-func DerivationShow(cmdCtx *CmdContext) error {
-	outputRoot := CLI.Derivations.Show.OutputRoot
+func (c *ShowCmd) Run(cmdCtx *cmdutil.CmdContext, parent *Cmd) error {
+	outputRoot := c.OutputRoot
 	if outputRoot != nil {
 		if err := os.MkdirAll(*outputRoot, os.FileMode(0755)); err != nil {
 			cmdCtx.Logger.Error("Could not make output directory", zap.Error(err))
@@ -55,10 +60,10 @@ func DerivationShow(cmdCtx *CmdContext) error {
 		}
 	}
 
-	err := recurseDerivations(cmdCtx.Logger, cmdCtx, CLI.Derivations.Show.Paths, CLI.Derivations.Show.Recurse, true,
-		CLI.Derivations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
+	err := recurseDerivations(cmdCtx.Logger, cmdCtx, c.Paths, c.Recurse, true,
+		parent.StoreRoot, func(cmdCtx *cmdutil.CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
 			l := cmdCtx.Logger
-			outputFormat := CLI.Derivations.Show.Format
+			outputFormat := c.Format
 			var output []byte
 			var err error
 			switch outputFormat {
@@ -96,12 +101,12 @@ func DerivationShow(cmdCtx *CmdContext) error {
 	return err
 }
 
-// DerivationUrls recursively follows the provided paths, resolves all URLs and writes them
+// Run recursively follows the provided paths, resolves all URLs and writes them
 // stdout. This allows it to provide a BOM for a given nix build.
-func DerivationUrls(cmdCtx *CmdContext) error {
+func (c *UrlsCmd) Run(cmdCtx *cmdutil.CmdContext, parent *Cmd) error {
 	inputUrls := mapset.NewSet[string]()
-	err := recurseDerivations(cmdCtx.Logger, cmdCtx, CLI.Derivations.Urls.Paths, true, CLI.Derivations.Urls.Strict,
-		CLI.Derivations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
+	err := recurseDerivations(cmdCtx.Logger, cmdCtx, c.Paths, true, c.Strict,
+		parent.StoreRoot, func(cmdCtx *cmdutil.CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
 			// As far as we know, there's only two possible types of inputs: "url" and "urls", stored
 			// under the env key. urls is spaced separated.
 			inputUris := []*url.URL{}
@@ -130,7 +135,7 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 				subUrls := nixconsts.SubstituteUrl(uri)
 
 				for _, subUri := range subUrls {
-					if CLI.Derivations.Urls.GuessUrlTypes {
+					if c.GuessUrlTypes {
 						if fetcher, found := drv.Env["fetcher"]; found {
 							if strings.HasSuffix(fetcher, "git") && subUri.Scheme != "git" {
 								// Looks like a git URL
@@ -146,18 +151,18 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 			}
 
 			// Add a tarball cache URL to the end of the list
-			if CLI.Derivations.Urls.EmitTarballCacheUrls && len(inputUris) > 0 {
+			if c.EmitTarballCacheUrls && len(inputUris) > 0 {
 				if output, found := drv.Outputs["out"]; found {
 					// We need to ignore r: since it's for recursive derivations we can't calculate.
 					if output.HashAlgorithm != "" && output.Hash != "" && !strings.HasPrefix(output.Hash, "r:") {
-						derivUrls = append(derivUrls, fmt.Sprintf("%v/%v/%v", CLI.Derivations.Urls.TarballCacheBaseUrl, output.HashAlgorithm, output.Hash))
+						derivUrls = append(derivUrls, fmt.Sprintf("%v/%v/%v", c.TarballCacheBaseUrl, output.HashAlgorithm, output.Hash))
 					}
 				}
 			}
 
 			// Add a direct substitution URL from a nix-cache. Only add this if we got
 			// some input URIs (i.e. this is a source derivation)
-			if CLI.Derivations.Urls.IncludeNixPaths && len(inputUris) > 0 {
+			if c.IncludeNixPaths && len(inputUris) > 0 {
 				if output, found := drv.Outputs["out"]; found {
 					// Unfortunately we can't just give a single URL for anything Nix-based easily.
 					// Split the difference and invent a URL scheme so we can just pass the narinfo hash.
@@ -190,8 +195,8 @@ func (e ErrDerivation) Error() string {
 }
 
 // recurseDerivations follows derivations and calls a function against each one.
-func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recurse bool, strict bool, drvRoot string,
-	cb func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error) error {
+func recurseDerivations(l *zap.Logger, cmdCtx *cmdutil.CmdContext, paths []string, recurse bool, strict bool, drvRoot string,
+	cb func(cmdCtx *cmdutil.CmdContext, path *pathlib.Path, drv *derivation.Derivation) error) error {
 	nextPaths := paths[:]
 	seenPaths := map[string]struct{}{}
 	seenPathsMtx := new(sync.Mutex)
@@ -219,7 +224,7 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 				}
 			}
 		}()
-		err := readPaths(cmdCtx, slices.Values(currentPaths), func(path *pathlib.Path) error {
+		err := cmdutil.ReadPaths(cmdCtx, slices.Values(currentPaths), func(path *pathlib.Path) error {
 			if err := sem.Acquire(ctx, 1); err != nil {
 				return err
 			}
