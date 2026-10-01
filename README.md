@@ -41,9 +41,9 @@ to it when it is returned.
 e.g.
 ```bash
 nix-sigman \
-  --public-key "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=" \
+  --public-keys "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=" \
   --private-key-files "/path/to/my-private-key.key" \
-  --signing-map "cache.nixos.org-1=my-private-key" proxy /some/root
+  proxy --signing-map "cache.nixos.org-1=my-private-key" /some/root
 ```
 
 It is also supported to require multiple signatures by using the `&` specifier:
@@ -53,19 +53,29 @@ nix-sigman \
   --public-key-files "/path/to/public.key" \
   --public-key-files "/path/to/other-public.key" \
   --private-key-files "/path/to/my-private-key.key" \
-  --signing-map "cache.nixos.org-1&my-other-public-key=my-private-key" proxy /
+  proxy --signing-map "cache.nixos.org-1&my-other-public-key=my-private-key" /
 ```
+
+Key options (`--public-keys`, `--public-key-files`, `--private-keys`, `--private-key-files`)
+are global and go before the subcommand. Resigning options such as `--signing-map` belong
+to the subcommand and go after it.
 
 ### Unsigned Resigning
 
 `--unsigned-resigning-keys` specifies a list of keys which will be used to sign NARs which
-have _no_ other signatures on them at all - i.e. they have never been signed.
+have _no_ other signatures on them at all - i.e. they have never been signed. This only
+takes effect with `--allow-unsigned-resigning`.
+
+An empty public key specifier in the signing map (e.g. `--signing-map "=my-private-key"`)
+also matches only unsigned packages. It is rejected unless `--allow-unsigned-resigning`
+is given.
 
 `--unconditional-resigning-keys` specifies a list of keys which will be used to sign _every_
-NAR file, regardless of what signatures are present.
+NAR file, regardless of what signatures are present. This only takes effect with
+`--allow-unconditional-resigning`.
 
 Both of these obviously constitute a potential security hazard, but can be very useful
-when dealing with certain situations.
+when dealing with certain situations, which is why they must be explicitly enabled.
 
 ## Using Nix HTTP Binary Cache Support
 
