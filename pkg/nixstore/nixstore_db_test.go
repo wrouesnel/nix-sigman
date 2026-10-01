@@ -78,3 +78,12 @@ func (s *NixStoreDBSuite) TestFilehashRequiresIndex(c *C) {
 		nixstore.WithNARURLFormatConvention(nixstore.NarURLFormatConventionFilehash))
 	c.Assert(err, IsNil)
 }
+
+func (s *NixStoreDBSuite) TestNixCacheInfo(c *C) {
+	store, err := nixstore.NewNixStore(s.nixDb, s.nixDb.Parent(), nixstore.DefaultStorePath,
+		nixstore.WithPriority(30))
+	c.Assert(err, IsNil)
+	text, err := store.GetNixCacheInfo().MarshalText()
+	c.Assert(err, IsNil)
+	c.Check(string(text), Equals, "StoreDir: /nix/store\nWantMassQuery: 1\nPriority: 30\n")
+}

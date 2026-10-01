@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -63,11 +62,8 @@ type NixCacheInfo struct {
 }
 
 func (n *NixCacheInfo) MarshalText() (text []byte, err error) {
-	return fmt.Append([]byte{},
-		[]byte("StoreDir: "), []byte(n.StorePath), '\n',
-		[]byte("WantMassQuery: "), strconv.FormatBool(n.WantMassQuery), '\n',
-		[]byte("Priority: "), strconv.FormatInt(int64(n.Priority), 10), '\n',
-	), nil
+	return fmt.Appendf([]byte{}, "StoreDir: %s\nWantMassQuery: %s\nPriority: %d\n",
+		n.StorePath, lo.Ternary(n.WantMassQuery, "1", "0"), n.Priority), nil
 }
 
 // Note: this is only efficient if a fixed prefix (the nix store path) is the glob
@@ -93,6 +89,7 @@ SELECT * FROM ValidPaths ORDER BY ROWID ASC LIMIT 1
 const DefaultNixDBPath = "nix/var/nix/db/db.sqlite"
 const DefaultNixStoreRoot = "nix/store"
 const DefaultStorePath = "/nix/store"
+const DefaultPriority = 40
 
 // NarURLFormatConvention defines the convention to use for NAR URLs served by
 // the server.
@@ -108,6 +105,7 @@ type NixStoreOption func(opt *nixStoreOptions)
 type nixStoreOptions struct {
 	narURLFormatConvention NarURLFormatConvention
 	noPerformanceCheck     bool
+	priority               int
 }
 
 func WithNARURLFormatConvention(conv NarURLFormatConvention) NixStoreOption {
@@ -122,6 +120,13 @@ func WithNoPerformanceCheck(value bool) NixStoreOption {
 	}
 }
 
+// WithPriority sets the priority advertised in nix-cache-info. Lower means greater.
+func WithPriority(value int) NixStoreOption {
+	return func(opt *nixStoreOptions) {
+		opt.priority = value
+	}
+}
+
 func DefaultNixStore(root *pathlib.Path) (db *pathlib.Path, storeRoot *pathlib.Path) {
 	db = root.Join(DefaultNixDBPath)
 	storeRoot = root.Join(DefaultNixStoreRoot)
@@ -129,7 +134,7 @@ func DefaultNixStore(root *pathlib.Path) (db *pathlib.Path, storeRoot *pathlib.P
 }
 
 func NewNixStore(nixDb *pathlib.Path, storeRoot *pathlib.Path, storePath string, opts ...NixStoreOption) (NixStore, error) {
-	options := nixStoreOptions{}
+	options := nixStoreOptions{priority: DefaultPriority}
 	for _, opt := range opts {
 		opt(&options)
 	}
@@ -214,7 +219,7 @@ type nixStore struct {
 func (n *nixStore) GetNixCacheInfo() *NixCacheInfo {
 	return new(NixCacheInfo{
 		StorePath:     n.storePath,
-		Priority:      40,
+		Priority:      n.priority,
 		WantMassQuery: true,
 	})
 }

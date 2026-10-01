@@ -89,6 +89,7 @@ func Serve(cmdCtx *cmdutil.CmdContext, cfg *ServeConfig) error {
 	nixOpts := []nixstore.NixStoreOption{
 		nixstore.WithNARURLFormatConvention(cfg.NarPathFormat),
 		nixstore.WithNoPerformanceCheck(cfg.NoPerformanceCheck),
+		nixstore.WithPriority(cfg.Priority),
 	}
 	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, storePath, nixOpts...)
 	if err != nil {
