@@ -65,7 +65,7 @@ func LoadSigningMap(l *zap.Logger, signingConfig *ResigningConfig, privateKeys [
 	}
 
 	l.Info("Building resigning map")
-	signers, err = buildSigningMap(publicKeys, privateKeys, signingMap)
+	signers, err = buildSigningMap(publicKeys, privateKeys, signingMap, signingConfig.AllowUnsignedResigning)
 	if err != nil {
 		return
 	}
@@ -175,9 +175,11 @@ func loadSigningMapFile(path string) (map[string]string, error) {
 	return signingMap, nil
 }
 
-// buildSigningMap builds the data structures for doing conditional signing
+// buildSigningMap builds the data structures for doing conditional signing. An empty
+// public key specifier matches only unsigned packages, and is only permitted if
+// allowUnsigned is set.
 func buildSigningMap(publicKeys []nixtypes.NamedPublicKey,
-	privateKeys []nixtypes.NamedPrivateKey, signingMap map[string]string) (signers ConditionalResigners, setupErr error) {
+	privateKeys []nixtypes.NamedPrivateKey, signingMap map[string]string, allowUnsigned bool) (signers ConditionalResigners, setupErr error) {
 
 	privMap := lo.SliceToMap(privateKeys, func(item nixtypes.NamedPrivateKey) (string, nixtypes.NamedPrivateKey) {
 		return item.KeyName, item
@@ -200,6 +202,11 @@ func buildSigningMap(publicKeys []nixtypes.NamedPublicKey,
 			}
 		}
 
+		unsignedOnly := len(requiredKeys) == 0
+		if unsignedOnly && !allowUnsigned {
+			setupErr = multierr.Append(setupErr, fmt.Errorf("empty public key specifier for %q requires unsigned resigning to be allowed", v))
+		}
+
 		signingKeys := []nixtypes.NamedPrivateKey{}
 		for _, key := range requiredPrivateKeys {
 			if !lo.HasKey(privMap, key) {
@@ -210,6 +217,10 @@ func buildSigningMap(publicKeys []nixtypes.NamedPublicKey,
 		}
 
 		signers = append(signers, func(ninfo *nixtypes.NarInfo) (bool, error) {
+			if unsignedOnly && len(ninfo.Sig) > 0 {
+				// The empty specifier only matches packages with no signatures at all.
+				return false, nil
+			}
 			// Abort as soon as something doesn't match
 			for _, key := range requiredKeys {
 				match, _ := ninfo.Verify(key)
