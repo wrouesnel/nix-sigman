@@ -3,6 +3,7 @@ package resigning_test
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"reflect"
 	"testing"
 
@@ -93,4 +94,36 @@ func (a *AstSuite) TestAstParsing(c *C) {
 	c.Assert(stmt.If.And[3].Not, Not(IsNil))
 	c.Assert(stmt.If.And[3].Not.SignedBy, Not(IsNil))
 	c.Assert(stmt.Then.SignWith, Not(IsNil))
+}
+
+// TestExampleConditionsFile checks the example rules in the repository root parse and validate.
+func (a *AstSuite) TestExampleConditionsFile(c *C) {
+	content, err := os.ReadFile("../../resigning-conditions.yml")
+	c.Assert(err, IsNil)
+
+	// Generate keys for whatever names the example uses.
+	keyFor := func(name string) nixtypes.NamedPrivateKey {
+		key, err := nixtypes.GeneratePrivateKey(name)
+		c.Assert(err, IsNil)
+		return key
+	}
+	loader, err := yaml.NewLoader(bytes.NewBuffer(content),
+		yaml.Options(
+			yaml.WithCustomTypeUnmarshaler(reflect.TypeFor[nixtypes.NamedPublicKey](), func(out any, node *yaml.Node) error {
+				key := keyFor(node.Value)
+				*(out.(*nixtypes.NamedPublicKey)) = key.PublicKey()
+				return nil
+			}),
+			yaml.WithCustomTypeUnmarshaler(reflect.TypeFor[nixtypes.NamedPrivateKey](), func(out any, node *yaml.Node) error {
+				*(out.(*nixtypes.NamedPrivateKey)) = keyFor(node.Value)
+				return nil
+			}),
+			yaml.WithKnownFields(),
+		))
+	c.Assert(err, IsNil)
+
+	root := new(resigning.ResigningNode)
+	c.Assert(loader.Load(&root), IsNil)
+	c.Assert(root.Validate(), IsNil)
+	c.Check(len(root.Statements), Equals, 3)
 }
