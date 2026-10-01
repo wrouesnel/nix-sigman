@@ -38,7 +38,7 @@ func NewKey(cmdCtx *CmdContext) error {
 		return errors.Join(&ErrCommand{}, err)
 	}
 
-	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Debug.ExtractTar.OutputDir), pathlib.PathWithAfero(cmdCtx.Fs)).Clean()
+	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.NewKey.OutputDir), pathlib.PathWithAfero(cmdCtx.Fs)).Clean()
 	l.Debug("Ensuring output directory exists", zap.String("output_dir", outputDir.String()))
 	if outputDir.Name() != "/" {
 		if err := outputDir.MkdirAllMode(os.FileMode(0755)); err != nil {
