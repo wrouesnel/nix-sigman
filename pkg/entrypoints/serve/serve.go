@@ -122,8 +122,11 @@ func Serve(cmdCtx *cmdutil.CmdContext, cfg *ServeConfig) error {
 	}
 
 	requiredSigs := mapset.NewSet[string](cfg.RequiredSignatures...)
+	publicKeyNames := mapset.NewSet[string](lo.Map(publicKeys, func(item nixtypes.NamedPublicKey, _ int) string {
+		return item.KeyName
+	})...)
 	for _, sigName := range cfg.RequiredSignatures {
-		if !requiredSigs.Contains(sigName) {
+		if !publicKeyNames.Contains(sigName) {
 			l.Error("Required signature is not configured as a public key", zap.String("keyname", sigName))
 			return errors.Join(&cmdutil.ErrCommand{}, errors.New("required signature not configured as public signature"))
 		}
