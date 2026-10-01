@@ -123,11 +123,11 @@ func narHashCheck(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) (bo
 	nl := l.With(zap.String("nar_path", narPath.String()))
 	nl.Debug("Hash Verification")
 	fh, err := narPath.Open()
-	defer fh.Close()
 	if err != nil {
 		nl.Warn("Could not find file", zap.Error(err))
 		return false, nixtypes.TypedNixHash{}, err
 	}
+	defer fh.Close()
 	if ninfo.FileHash.HashName != "sha256" {
 		nl.Warn("Unsupported hash", zap.String("hash_name", ninfo.FileHash.HashName))
 		return false, nixtypes.TypedNixHash{}, errors.New("unsupported hash")
@@ -147,12 +147,13 @@ func narHashCheck(l *zap.Logger, path *pathlib.Path, ninfo nixtypes.NarInfo) (bo
 }
 
 func backNinfo(l *zap.Logger, path *pathlib.Path) error {
-	backupPath := fmt.Sprintf("%s.bak", path)
+	// Write the backup through the same filesystem as the original (which may not be the OS).
+	backupPath := path.Parent().Join(fmt.Sprintf("%s.bak", path.Name()))
 	oldNarBytes, err := path.ReadFile()
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(backupPath, oldNarBytes, os.FileMode(0644)); err != nil {
+	if err := backupPath.WriteFileMode(oldNarBytes, os.FileMode(0644)); err != nil {
 		return err
 	}
 	return nil
