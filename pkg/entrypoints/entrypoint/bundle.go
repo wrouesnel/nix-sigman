@@ -75,6 +75,7 @@ func Bundle(cmdCtx *CmdContext) error {
 	if err != nil {
 		return errors.Join(&ErrCommand{}, errors.New("could not open Nix DB"), err)
 	}
+	defer nixDBBinary.Close()
 
 	if _, err := io.Copy(tempDb, nixDBBinary); err != nil {
 		return errors.Join(&ErrCommand{}, errors.New("could not copy Nix DB to temp file"), err)
@@ -144,7 +145,7 @@ func Bundle(cmdCtx *CmdContext) error {
 
 		nixRow := nixRows[0]
 
-		if nixStore == nil {
+		if *nixStore == "" {
 			*nixStore = filepath.Dir(nixRow.Path)
 		}
 
@@ -182,6 +183,12 @@ func Bundle(cmdCtx *CmdContext) error {
 			return err
 		}
 
+		// Flush the compressor so the file size and hash cover the complete output.
+		if err := compWr.Close(); err != nil {
+			l.Error("Failed to finish compressing NAR file", zap.Error(err))
+			return err
+		}
+
 		narFileSize := narWr.Count()
 		narHash := narHasher.Sum(nil)
 		fileSize := fileWr.Count()
@@ -190,9 +197,9 @@ func Bundle(cmdCtx *CmdContext) error {
 		l.Debug("Successfully wrote NAR file",
 			zap.String("file", outputFile.Name()),
 			zap.Uint64("file_size", fileSize),
-			zap.String("file_hash", hex.EncodeToString(narHash)),
+			zap.String("file_hash", hex.EncodeToString(fileHash)),
 			zap.Uint64("nar_file_size", narFileSize),
-			zap.String("nar_file_hash", hex.EncodeToString(fileHash)),
+			zap.String("nar_file_hash", hex.EncodeToString(narHash)),
 		)
 
 		// Cross-check the narSize against the DB size
@@ -226,6 +233,9 @@ func Bundle(cmdCtx *CmdContext) error {
 		sig := make([]nixtypes.NixSignature, 0)
 		if nixRow.Sigs != nil {
 			for _, sigString := range strings.Split(*nixRow.Sigs, " ") {
+				if sigString == "" {
+					continue
+				}
 				s := nixtypes.NixSignature{}
 				if err := s.UnmarshalText([]byte(sigString)); err != nil {
 					l.Error("Could not unmarshal a signature on the row", zap.String("sig_string", sigString))
@@ -236,8 +246,8 @@ func Bundle(cmdCtx *CmdContext) error {
 		}
 
 		deriver := ""
-		if nixRow.Deriver != nil {
-			deriver = *nixRow.Deriver
+		if nixRow.Deriver != nil && *nixRow.Deriver != "" {
+			deriver = filepath.Base(*nixRow.Deriver)
 		}
 
 		// Get references
@@ -252,10 +262,11 @@ func Bundle(cmdCtx *CmdContext) error {
 		for _, row := range referenceRows {
 			references = append(references, filepath.Base(row.Path))
 		}
+		slices.Sort(references)
 
-		extra := map[string]string{}
+		ca := ""
 		if nixRow.Ca != nil {
-			extra["CA"] = *nixRow.Ca
+			ca = *nixRow.Ca
 		}
 
 		ninfoPath := outputDir.Join(fmt.Sprintf("%s.narinfo", narId))
@@ -271,14 +282,15 @@ func Bundle(cmdCtx *CmdContext) error {
 			StorePath:   nixRow.Path,
 			URL:         relNarPath.String(),
 			Compression: CLI.Bundle.Compression,
-			FileHash:    nixtypes.TypedNixHash{"sha256", fileHasher.Sum(nil)},
+			FileHash:    nixtypes.TypedNixHash{HashName: "sha256", Hash: fileHash},
 			FileSize:    fileSize,
-			NarHash:     nixtypes.TypedNixHash{hashType, hashBytes},
+			NarHash:     nixtypes.TypedNixHash{HashName: hashType, Hash: hashBytes},
 			NarSize:     narFileSize,
 			References:  references,
-			Deriver:     filepath.Base(deriver),
+			Deriver:     deriver,
 			Sig:         sig,
-			Extra:       extra,
+			CA:          ca,
+			Extra:       map[string]string{},
 		}
 
 		if err := writeNInfo(l, ninfoPath, ninfo); err != nil {
