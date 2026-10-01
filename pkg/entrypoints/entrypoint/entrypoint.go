@@ -14,7 +14,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/chigopher/pathlib"
 	s3 "github.com/fclairamb/afero-s3"
-	"github.com/labstack/gommon/log"
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/kongutil"
 	nix_http_cachefs "github.com/wrouesnel/nix-http-cachefs"
@@ -163,7 +162,7 @@ func Entrypoint(args []string, stdIn io.ReadCloser, stdOut io.Writer, stdErr io.
 	sigCtx, cancelFn := context.WithCancel(appCtx)
 	go func() {
 		sig := <-sigCh
-		log.Info("Caught signal - exiting", zap.String("signal", sig.String()))
+		logger.Info("Caught signal - exiting", zap.String("signal", sig.String()))
 		cancelFn()
 	}()
 
