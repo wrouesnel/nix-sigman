@@ -37,6 +37,16 @@ type NixStoreSuite struct {
 func (n *NixStoreSuite) SetUpSuite(c *C) {
 	var err error
 	n.nixDb, n.nixStoreRoot = nixstore.DefaultNixStore(pathlib.NewPath("", pathlib.PathWithAfero(afero.NewOsFs())))
+	// These tests compare against the host's Nix installation.
+	if _, err := os.Stat(n.nixDb.String()); err != nil {
+		c.Skip(fmt.Sprintf("no Nix database available: %v", err))
+	}
+	if _, err := exec.LookPath("nix"); err != nil {
+		c.Skip("nix command not available")
+	}
+	if _, err := os.Stat(wellKnownPath); err != nil {
+		c.Skip(fmt.Sprintf("well known store path not available: %s", wellKnownPath))
+	}
 	n.store, err = nixstore.NewNixStore(n.nixDb, n.nixStoreRoot, nixstore.DefaultStorePath,
 		nixstore.WithNARURLFormatConvention(nixstore.NarURLFormatConventionFilehash),
 		nixstore.WithNoPerformanceCheck(true),
