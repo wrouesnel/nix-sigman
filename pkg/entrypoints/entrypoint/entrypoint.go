@@ -216,17 +216,16 @@ func Entrypoint(args []string, stdIn io.ReadCloser, stdOut io.Writer, stdErr io.
 		}
 		// In truly frustrating style, endpoint overrides aren't supported till V2,
 		// which this library isn't based on. Hack them in here.
-		endpointUrl := new(string)
+		var endpointUrl *string
 		if os.Getenv("AWS_ENDPOINT_URL") != "" {
-			*endpointUrl = os.Getenv("AWS_ENDPOINT_URL")
+			endpointUrl = aws.String(os.Getenv("AWS_ENDPOINT_URL"))
 		}
 		if os.Getenv("AWS_ENDPOINT_URL_S3") != "" {
-			*endpointUrl = os.Getenv("AWS_ENDPOINT_URL_S3")
+			endpointUrl = aws.String(os.Getenv("AWS_ENDPOINT_URL_S3"))
 		}
-		forcePathStyle := new(bool)
-		if endpointUrl != nil {
-			*forcePathStyle = true
-		}
+		// Custom endpoints (e.g. minio) generally need path-style addressing, but
+		// real S3 should keep using virtual-hosted style.
+		forcePathStyle := aws.Bool(endpointUrl != nil)
 		sess, err := session.NewSessionWithOptions(session.Options{
 			Config:            aws.Config{Endpoint: endpointUrl, S3ForcePathStyle: forcePathStyle},
 			SharedConfigState: session.SharedConfigEnable,
