@@ -195,6 +195,11 @@ func DebugExtractTar(cmdCtx *CmdContext) error {
 		if strings.HasPrefix(cleanedPath, CLI.Debug.ExtractTar.Prefix) {
 			destPathStr := strings.TrimPrefix(cleanedPath, CLI.Debug.ExtractTar.Prefix)
 			fields := []zap.Field{zap.String("archive_path", cleanedPath), zap.String("dest_path", destPathStr)}
+			// Never allow an archive entry to write outside of the output directory.
+			if relPath := strings.TrimLeft(destPathStr, string(filepath.Separator)); relPath != "" && !filepath.IsLocal(relPath) {
+				l.Warn("Skipping archive entry which would extract outside the output directory", fields...)
+				continue
+			}
 			if CLI.Debug.ExtractTar.Dryrun {
 				fields = append(fields, zap.Bool("dryrun", CLI.Debug.ExtractTar.Dryrun))
 			}
