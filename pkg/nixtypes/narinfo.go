@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -291,8 +292,24 @@ func (n *NarInfo) MarshalText() (text []byte, err error) {
 		outputLines.Add("CA", n.CA)
 	}
 
-	for key, value := range n.Extra {
-		outputLines.Add(key, value)
+	// Emit extra fields in the order they were read, followed by any added
+	// since in sorted order, so serialization is stable.
+	emitted := map[string]struct{}{}
+	for _, key := range n.order {
+		if value, found := n.Extra[key]; found {
+			if _, done := emitted[key]; !done {
+				outputLines.Add(key, value)
+				emitted[key] = struct{}{}
+			}
+		}
+	}
+	remaining := lo.Filter(lo.Keys(n.Extra), func(key string, _ int) bool {
+		_, done := emitted[key]
+		return !done
+	})
+	slices.Sort(remaining)
+	for _, key := range remaining {
+		outputLines.Add(key, n.Extra[key])
 	}
 
 	text = []byte(outputLines.String())

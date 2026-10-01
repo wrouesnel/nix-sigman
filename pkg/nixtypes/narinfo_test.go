@@ -187,3 +187,14 @@ func (s *NarInfoSuite) TestNarInfoSign(c *C) {
 	c.Assert(len(signatures), Equals, 1, Commentf("sign should only have added 1 signature when multiple calls made"))
 	c.Assert(signatures[0].KeyName, Equals, keyName)
 }
+
+func (s *NarInfoSuite) TestNarInfoExtraKeysKeepOrder(c *C) {
+	input := narInfo + "Zeta: 1\nAlpha: 2\nMiddle: 3\nBeta: 4\n"
+	for i := 0; i < 20; i++ {
+		ninfo := NarInfo{}
+		c.Assert(ninfo.UnmarshalText([]byte(input)), IsNil)
+		output, err := ninfo.MarshalText()
+		c.Assert(err, IsNil)
+		c.Assert(string(output), Equals, input)
+	}
+}
