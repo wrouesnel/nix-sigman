@@ -78,7 +78,8 @@ func DerivationShow(cmdCtx *CmdContext) error {
 			}
 
 			if outputRoot != nil {
-				extension, _ := strings.CutPrefix(outputFormat, "-")
+				// json-compact is still JSON
+				extension, _, _ := strings.Cut(outputFormat, "-")
 				filename := fmt.Sprintf("%s.%s", path.Name(), extension)
 
 				if err := os.WriteFile(filepath.Join(*outputRoot, filename), output, os.FileMode(0644)); err != nil {
