@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/MadAppGang/httplog"
@@ -78,10 +79,58 @@ func Proxy(cmdCtx *cmdutil.CmdContext, cfg *ProxyConfig) error {
 	rootDir := pathlib.NewPath(cfg.Root, pathlib.PathWithAfero(cmdCtx.Fs)).Clean()
 	l.Info("Serving cache from", zap.String("output_dir", rootDir.String()))
 
+	router := newRouter(l, cfg, rootDir, signers, pushSigners)
+
+	l.Info("Starting HTTP server")
+	logger := httplog.LoggerWithConfig(
+		httplog.LoggerConfig{
+			Output:    io.Discard,
+			Formatter: lzap.DefaultZapLogger(l, zap.InfoLevel, "Request"),
+		},
+	)
+
+	webCtx, webCancel := context.WithCancel(cmdCtx.Ctx)
+	listeners, errCh, listenerErr := multihttp.Listen(cfg.Listen, logger(router))
+	if listenerErr != nil {
+		l.Error("Error setting up listeners", zap.Error(listenerErr))
+		webCancel()
+	}
+
+	// Log errors from the listener
+	go func() {
+		listenerErrInfo := <-errCh
+		// On the first error, cancel the webCtx to shutdown
+		webCancel()
+		for {
+			l.Error("Error from listener",
+				zap.Error(listenerErrInfo.Error),
+				zap.String("listener_addr", listenerErrInfo.Listener.Addr().String()))
+			// Keep receiving the rest of the errors so we can log them
+			listenerErrInfo = <-errCh
+		}
+	}()
+	<-webCtx.Done()
+	for _, listener := range listeners {
+		if err := listener.Close(); err != nil {
+			l.Warn("Error closing listener during shutdown", zap.Error(err))
+		}
+	}
+
+	l.Info("Exiting")
+	return nil
+}
+
+// newRouter builds the HTTP handler which serves (and optionally accepts pushes to)
+// the binary cache at rootDir.
+func newRouter(l *zap.Logger, cfg *ProxyConfig, rootDir *pathlib.Path,
+	signers resigning.ConditionalResigners, pushSigners resigning.ConditionalResigners) *httprouter.Router {
 	handle := func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		// Handle both GET and HEAD.
 		defer r.Body.Close()
-		name := p.ByName("name")
+		// Clean the request path as a rooted path first so ".." segments can never
+		// escape the cache root, then make it relative. The router does not clean
+		// paths for us, and the catch-all parameter includes the leading "/".
+		name := strings.TrimPrefix(path.Clean("/"+p.ByName("name")), "/")
 		requestName := rootDir.Join(name).Clean()
 		// Stat the request path so HEAD requests can work
 		st, err := requestName.Stat()
@@ -397,7 +446,6 @@ func Proxy(cmdCtx *cmdutil.CmdContext, cfg *ProxyConfig) error {
 		}
 	}
 
-	l.Info("Starting HTTP server")
 	router := httprouter.New()
 	router.GET("/*name", handle)
 	router.HEAD("/*name", handle)
@@ -407,40 +455,5 @@ func Proxy(cmdCtx *cmdutil.CmdContext, cfg *ProxyConfig) error {
 		router.PUT("/*name", handle)
 	}
 
-	logger := httplog.LoggerWithConfig(
-		httplog.LoggerConfig{
-			Output:    io.Discard,
-			Formatter: lzap.DefaultZapLogger(l, zap.InfoLevel, "Request"),
-		},
-	)
-
-	webCtx, webCancel := context.WithCancel(cmdCtx.Ctx)
-	listeners, errCh, listenerErr := multihttp.Listen(cfg.Listen, logger(router))
-	if listenerErr != nil {
-		l.Error("Error setting up listeners", zap.Error(listenerErr))
-		webCancel()
-	}
-
-	// Log errors from the listener
-	go func() {
-		listenerErrInfo := <-errCh
-		// On the first error, cancel the webCtx to shutdown
-		webCancel()
-		for {
-			l.Error("Error from listener",
-				zap.Error(listenerErrInfo.Error),
-				zap.String("listener_addr", listenerErrInfo.Listener.Addr().String()))
-			// Keep receiving the rest of the errors so we can log them
-			listenerErrInfo = <-errCh
-		}
-	}()
-	<-webCtx.Done()
-	for _, listener := range listeners {
-		if err := listener.Close(); err != nil {
-			l.Warn("Error closing listener during shutdown", zap.Error(err))
-		}
-	}
-
-	l.Info("Exiting")
-	return nil
+	return router
 }
