@@ -58,11 +58,15 @@ func (n *NarInfo) Fingerprint() []byte {
 }
 
 // Verify verifies the NARInfo signature against the given key and returns the
-// matching signatures.
+// matching signatures. As with Nix, only signatures carrying the key's name are
+// considered.
 func (n *NarInfo) Verify(key NamedPublicKey) (bool, []NixSignature) {
 	fingerprint := n.Fingerprint()
 	matches := []NixSignature{}
 	for _, signature := range n.Sig {
+		if signature.KeyName != key.KeyName {
+			continue
+		}
 		if ed25519.Verify(key.Key, fingerprint, signature.Signature) {
 			matches = append(matches, signature)
 		}

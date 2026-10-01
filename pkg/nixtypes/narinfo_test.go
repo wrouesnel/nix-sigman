@@ -198,3 +198,22 @@ func (s *NarInfoSuite) TestNarInfoExtraKeysKeepOrder(c *C) {
 		c.Assert(string(output), Equals, input)
 	}
 }
+
+func (s *NarInfoSuite) TestNarInfoVerifyRequiresKeyName(c *C) {
+	key, err := GeneratePrivateKey("real-1")
+	c.Assert(err, IsNil)
+	ninfo := NarInfo{}
+	c.Assert(ninfo.UnmarshalText([]byte(narInfo)), IsNil)
+	ninfo.RemoveAllSigs()
+	_, _, err = ninfo.Sign(key)
+	c.Assert(err, IsNil)
+
+	ok, _ := ninfo.Verify(key.PublicKey())
+	c.Check(ok, Equals, true)
+
+	// The same key bytes under a different name must not verify.
+	renamed := key.PublicKey()
+	renamed.KeyName = "impostor-1"
+	ok, _ = ninfo.Verify(renamed)
+	c.Check(ok, Equals, false)
+}
