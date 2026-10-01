@@ -62,7 +62,7 @@ func Sign(cmdCtx *CmdContext) error {
 	if len(CLI.Sign.SigningMap) > 0 || CLI.Sign.SigningMapFile != "" {
 		l.Info("Conditional resigning requested")
 		signers, err = resigning.LoadSigningMap(l,
-			&CLI.Serve.ResigningConfig,
+			&CLI.Sign.ResigningConfig,
 			privateKeys,
 			publicKeys,
 		)
