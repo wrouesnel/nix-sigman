@@ -49,7 +49,8 @@ func NewKey(cmdCtx *CmdContext) error {
 	privateKeyFile := outputDir.Join(fmt.Sprintf("%s.%s", keyName, CLI.NewKey.PrivateKeyExt))
 	publicKeyFile := outputDir.Join(fmt.Sprintf("%s.%s", keyName, CLI.NewKey.PublicKeyExt))
 
-	err = privateKeyFile.WriteFile([]byte(fmt.Sprintf("%s\n", privateKey.String())))
+	// Private keys must not be readable by other users.
+	err = privateKeyFile.WriteFileMode([]byte(fmt.Sprintf("%s\n", privateKey.String())), os.FileMode(0600))
 	if err != nil {
 		return errors.Join(&ErrCommand{}, err)
 	}
