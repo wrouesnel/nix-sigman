@@ -22,7 +22,7 @@ type NewKeyConfig struct {
 
 // NewKey implements a simple way to generate well formed signing keys
 func NewKey(cmdCtx *CmdContext) error {
-	l := cmdCtx.logger
+	l := cmdCtx.Logger
 
 	currentUser, err := user.Current()
 	if err != nil {
@@ -38,7 +38,7 @@ func NewKey(cmdCtx *CmdContext) error {
 		return errors.Join(&ErrCommand{}, err)
 	}
 
-	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Debug.ExtractTar.OutputDir), pathlib.PathWithAfero(cmdCtx.fs)).Clean()
+	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Debug.ExtractTar.OutputDir), pathlib.PathWithAfero(cmdCtx.Fs)).Clean()
 	l.Debug("Ensuring output directory exists", zap.String("output_dir", outputDir.String()))
 	if outputDir.Name() != "/" {
 		if err := outputDir.MkdirAllMode(os.FileMode(0755)); err != nil {
@@ -63,6 +63,6 @@ func NewKey(cmdCtx *CmdContext) error {
 		}
 	}
 
-	fmt.Fprintf(cmdCtx.stdOut, "%s\n", publicKey.String())
+	fmt.Fprintf(cmdCtx.StdOut, "%s\n", publicKey.String())
 	return nil
 }

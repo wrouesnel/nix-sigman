@@ -1,12 +1,10 @@
 package entrypoint
 
 import (
-	"context"
 	"fmt"
-	"io"
 
 	"github.com/alecthomas/kong"
-	"github.com/spf13/afero"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/cmdutil"
 	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/proxy"
 	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/serve"
 	"go.uber.org/zap"
@@ -20,21 +18,10 @@ func (e ErrCommandNotImplemented) Error() string {
 	return fmt.Sprintf("%s not implemented", e.Command)
 }
 
-type ErrCommand struct {
-}
+type ErrCommand = cmdutil.ErrCommand
 
-func (e ErrCommand) Error() string {
-	return "command error"
-}
-
-// CmdContect packages common parameters for CLI commands
-type CmdContext struct {
-	logger *zap.Logger
-	ctx    context.Context
-	stdIn  io.ReadCloser
-	stdOut io.Writer
-	fs     afero.Fs
-}
+// CmdContext packages common parameters for CLI commands
+type CmdContext = cmdutil.CmdContext
 
 // Main command dispatcher for the program entrypoint. New commands should be added here, or they won't be
 // invocable.
@@ -46,10 +33,10 @@ func dispatchCommands(ctx *kong.Context, cmdCtx *CmdContext) error {
 
 	switch ctx.Command() {
 	case "serve":
-		err = serve.Serve(cmdCtx)
+		err = serve.Serve(cmdCtx, &CLI.Serve)
 
 	case "proxy <root>":
-		err = proxy.Proxy(cmdCtx)
+		err = proxy.Proxy(cmdCtx, &CLI.Proxy)
 	case "sign <nar-info-files>":
 		err = Sign(cmdCtx)
 

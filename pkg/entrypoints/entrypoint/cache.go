@@ -28,7 +28,7 @@ type RealizationsConfig struct {
 
 func RealizationsList(cmdCtx *CmdContext) error {
 	inputUrls := mapset.NewSet[string]()
-	err := recurseRealizations(cmdCtx.logger, cmdCtx, CLI.Realizations.List.Paths, true, CLI.Realizations.List.Strict,
+	err := recurseRealizations(cmdCtx.Logger, cmdCtx, CLI.Realizations.List.Paths, true, CLI.Realizations.List.Strict,
 		CLI.Realizations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, ninfo *nixtypes.NarInfo) error {
 			inputUrls.Add(path.String())
 			return nil
@@ -38,8 +38,8 @@ func RealizationsList(cmdCtx *CmdContext) error {
 	sort.Strings(urlList)
 
 	for _, subUrl := range urlList {
-		cmdCtx.stdOut.Write([]byte(subUrl))
-		cmdCtx.stdOut.Write([]byte("\n"))
+		cmdCtx.StdOut.Write([]byte(subUrl))
+		cmdCtx.StdOut.Write([]byte("\n"))
 	}
 
 	return err
@@ -68,12 +68,12 @@ func recurseRealizations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recu
 		currentPaths := nextPaths[:]
 		nextPaths = []string{}
 		errCh := make(chan error)
-		ctx, cancelFn := context.WithCancel(cmdCtx.ctx)
+		ctx, cancelFn := context.WithCancel(cmdCtx.Ctx)
 		go func() {
 			for err := range errCh {
 				if err != nil {
 					*hadErrors = true
-					cmdCtx.logger.Error(err.Error())
+					cmdCtx.Logger.Error(err.Error())
 					if ctx.Err() == nil && strict {
 						cancelFn()
 					}
@@ -88,7 +88,7 @@ func recurseRealizations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recu
 			go func() {
 				defer wg.Done()
 				defer sem.Release(1)
-				l := cmdCtx.logger
+				l := cmdCtx.Logger
 
 				ninfoPath := pathlib.NewPath(path.String()+".narinfo", pathlib.PathWithAfero(path.Fs()))
 
@@ -139,17 +139,17 @@ func recurseRealizations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recu
 			}()
 			return nil
 		})
-		cmdCtx.logger.Info("Recursed Paths", zap.Int("next_paths", len(nextPaths)))
+		cmdCtx.Logger.Info("Recursed Paths", zap.Int("next_paths", len(nextPaths)))
 		wg.Wait()
 		// Read paths should never fail
 		close(errCh)
 		if err != nil {
-			cmdCtx.logger.Error("Error while processing paths", zap.Error(err))
+			cmdCtx.Logger.Error("Error while processing paths", zap.Error(err))
 			break
 		}
 	}
 
-	cmdCtx.logger.Info("Processed realization paths", zap.Int("seen_paths", len(seenPaths)))
+	cmdCtx.Logger.Info("Processed realization paths", zap.Int("seen_paths", len(seenPaths)))
 	if *hadErrors {
 		return errors.New("encountered errors while processing paths")
 	}

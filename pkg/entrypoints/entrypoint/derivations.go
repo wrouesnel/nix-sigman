@@ -50,14 +50,14 @@ func DerivationShow(cmdCtx *CmdContext) error {
 	outputRoot := CLI.Derivations.Show.OutputRoot
 	if outputRoot != nil {
 		if err := os.MkdirAll(*outputRoot, os.FileMode(0755)); err != nil {
-			cmdCtx.logger.Error("Could not make output directory", zap.Error(err))
+			cmdCtx.Logger.Error("Could not make output directory", zap.Error(err))
 			return err
 		}
 	}
 
-	err := recurseDerivations(cmdCtx.logger, cmdCtx, CLI.Derivations.Show.Paths, CLI.Derivations.Show.Recurse, true,
+	err := recurseDerivations(cmdCtx.Logger, cmdCtx, CLI.Derivations.Show.Paths, CLI.Derivations.Show.Recurse, true,
 		CLI.Derivations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
-			l := cmdCtx.logger
+			l := cmdCtx.Logger
 			outputFormat := CLI.Derivations.Show.Format
 			var output []byte
 			var err error
@@ -86,8 +86,8 @@ func DerivationShow(cmdCtx *CmdContext) error {
 					return err
 				}
 			} else {
-				cmdCtx.stdOut.Write(output)
-				cmdCtx.stdOut.Write([]byte("\n"))
+				cmdCtx.StdOut.Write(output)
+				cmdCtx.StdOut.Write([]byte("\n"))
 			}
 			return nil
 		})
@@ -99,7 +99,7 @@ func DerivationShow(cmdCtx *CmdContext) error {
 // stdout. This allows it to provide a BOM for a given nix build.
 func DerivationUrls(cmdCtx *CmdContext) error {
 	inputUrls := mapset.NewSet[string]()
-	err := recurseDerivations(cmdCtx.logger, cmdCtx, CLI.Derivations.Urls.Paths, true, CLI.Derivations.Urls.Strict,
+	err := recurseDerivations(cmdCtx.Logger, cmdCtx, CLI.Derivations.Urls.Paths, true, CLI.Derivations.Urls.Strict,
 		CLI.Derivations.StoreRoot, func(cmdCtx *CmdContext, path *pathlib.Path, drv *derivation.Derivation) error {
 			// As far as we know, there's only two possible types of inputs: "url" and "urls", stored
 			// under the env key. urls is spaced separated.
@@ -173,8 +173,8 @@ func DerivationUrls(cmdCtx *CmdContext) error {
 	sort.Strings(urlList)
 
 	for _, subUrl := range urlList {
-		cmdCtx.stdOut.Write([]byte(subUrl))
-		cmdCtx.stdOut.Write([]byte("\n"))
+		cmdCtx.StdOut.Write([]byte(subUrl))
+		cmdCtx.StdOut.Write([]byte("\n"))
 	}
 
 	return err
@@ -203,12 +203,12 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 		currentPaths := nextPaths[:]
 		nextPaths = []string{}
 		errCh := make(chan error)
-		ctx, cancelFn := context.WithCancel(cmdCtx.ctx)
+		ctx, cancelFn := context.WithCancel(cmdCtx.Ctx)
 		go func() {
 			for err := range errCh {
 				if err != nil {
 					*hadErrors = true
-					cmdCtx.logger.Error(err.Error())
+					cmdCtx.Logger.Error(err.Error())
 					if ctx.Err() == nil && strict {
 						cancelFn()
 					}
@@ -223,7 +223,7 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 			go func() {
 				defer wg.Done()
 				defer sem.Release(1)
-				l := cmdCtx.logger
+				l := cmdCtx.Logger
 
 				fh, err := path.Open()
 				if err != nil {
@@ -263,17 +263,17 @@ func recurseDerivations(l *zap.Logger, cmdCtx *CmdContext, paths []string, recur
 			}()
 			return nil
 		})
-		cmdCtx.logger.Info("Recursed Paths", zap.Int("next_paths", len(nextPaths)))
+		cmdCtx.Logger.Info("Recursed Paths", zap.Int("next_paths", len(nextPaths)))
 		wg.Wait()
 		// Read paths should never fail
 		close(errCh)
 		if err != nil {
-			cmdCtx.logger.Error("Error while processing paths", zap.Error(err))
+			cmdCtx.Logger.Error("Error while processing paths", zap.Error(err))
 			break
 		}
 	}
 
-	cmdCtx.logger.Info("Processed derivation paths", zap.Int("seen_paths", len(seenPaths)))
+	cmdCtx.Logger.Info("Processed derivation paths", zap.Int("seen_paths", len(seenPaths)))
 	if *hadErrors {
 		return errors.New("encountered errors while processing paths")
 	}

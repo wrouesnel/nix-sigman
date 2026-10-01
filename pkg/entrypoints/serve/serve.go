@@ -19,7 +19,8 @@ import (
 	"github.com/samber/lo"
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/multihttp"
-	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/entrypoint"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/cmdutil"
+	"github.com/wrouesnel/nix-sigman/pkg/nixconsts"
 	"github.com/wrouesnel/nix-sigman/pkg/nixstore"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"github.com/wrouesnel/nix-sigman/pkg/resigning"
@@ -50,33 +51,33 @@ type ServeConfig struct {
 // Serve implements a Nix HTTP cache server by reading an extant `/nix` directory
 // in flatfile format. It is possible, though not advised, to share this with a system
 // nix-daemon.
-func Serve(cmdCtx *entrypoint.CmdContext) error {
-	l := cmdCtx.logger
+func Serve(cmdCtx *cmdutil.CmdContext, cfg *ServeConfig) error {
+	l := cmdCtx.Logger
 
-	initialRoot := entrypoint.CLI.Serve.Root
+	initialRoot := cfg.Root
 	if initialRoot == "/" {
 		initialRoot = ""
 	}
 
 	root := pathlib.NewPath(initialRoot, pathlib.PathWithAfero(afero.NewOsFs()))
 	nixDb, nixStoreRoot := nixstore.DefaultNixStore(root)
-	storePath := entrypoint.CLI.Serve.StorePath
+	storePath := cfg.StorePath
 
 	startTime := time.Now()
 
-	if entrypoint.CLI.Serve.NixDB != nil {
-		if filepath.IsAbs(*entrypoint.CLI.Serve.NixDB) {
-			nixDb = pathlib.NewPath(*entrypoint.CLI.Serve.NixDB, pathlib.PathWithAfero(afero.NewOsFs()))
+	if cfg.NixDB != nil {
+		if filepath.IsAbs(*cfg.NixDB) {
+			nixDb = pathlib.NewPath(*cfg.NixDB, pathlib.PathWithAfero(afero.NewOsFs()))
 		} else {
-			nixDb = root.Join(*entrypoint.CLI.Serve.NixDB)
+			nixDb = root.Join(*cfg.NixDB)
 		}
 	}
 
-	if entrypoint.CLI.Serve.StoreRoot != nil {
-		if filepath.IsAbs(*entrypoint.CLI.Serve.StoreRoot) {
-			nixStoreRoot = pathlib.NewPath(*entrypoint.CLI.Serve.StoreRoot, pathlib.PathWithAfero(afero.NewOsFs()))
+	if cfg.StoreRoot != nil {
+		if filepath.IsAbs(*cfg.StoreRoot) {
+			nixStoreRoot = pathlib.NewPath(*cfg.StoreRoot, pathlib.PathWithAfero(afero.NewOsFs()))
 		} else {
-			nixStoreRoot = root.Join(*entrypoint.CLI.Serve.StoreRoot)
+			nixStoreRoot = root.Join(*cfg.StoreRoot)
 		}
 	}
 
@@ -86,8 +87,8 @@ func Serve(cmdCtx *entrypoint.CmdContext) error {
 		zap.String("store_path", storePath))
 
 	nixOpts := []nixstore.NixStoreOption{
-		nixstore.WithNARURLFormatConvention(entrypoint.CLI.Serve.NarPathFormat),
-		nixstore.WithNoPerformanceCheck(entrypoint.CLI.Serve.NoPerformanceCheck),
+		nixstore.WithNARURLFormatConvention(cfg.NarPathFormat),
+		nixstore.WithNoPerformanceCheck(cfg.NoPerformanceCheck),
 	}
 	store, err := nixstore.NewNixStore(nixDb, nixStoreRoot, storePath, nixOpts...)
 	if err != nil {
@@ -96,48 +97,48 @@ func Serve(cmdCtx *entrypoint.CmdContext) error {
 	}
 
 	l.Debug("Loading private keys")
-	privateKeys, err := entrypoint.loadPrivateKeys(cmdCtx.logger)
+	privateKeys, err := cmdCtx.Keys.LoadPrivateKeys(cmdCtx.Logger)
 	if err != nil {
-		cmdCtx.logger.Error("Error loading private keys", zap.Error(err))
-		return errors.Join(&entrypoint.ErrCommand{}, err)
+		cmdCtx.Logger.Error("Error loading private keys", zap.Error(err))
+		return errors.Join(&cmdutil.ErrCommand{}, err)
 	}
 
 	l.Debug("Loading public keys")
-	publicKeys, err := entrypoint.loadPublicKeys(cmdCtx.logger)
+	publicKeys, err := cmdCtx.Keys.LoadPublicKeys(cmdCtx.Logger)
 	if err != nil {
-		cmdCtx.logger.Error("Error loading public keys", zap.Error(err))
-		return errors.Join(&entrypoint.ErrCommand{}, err)
+		cmdCtx.Logger.Error("Error loading public keys", zap.Error(err))
+		return errors.Join(&cmdutil.ErrCommand{}, err)
 	}
 
 	l.Debug("Load signing map")
 	signers, err := resigning.LoadSigningMap(l,
-		&entrypoint.CLI.Serve.ResigningConfig,
+		&cfg.ResigningConfig,
 		privateKeys,
 		publicKeys,
 	)
 	if err != nil {
-		return errors.Join(&entrypoint.ErrCommand{}, err)
+		return errors.Join(&cmdutil.ErrCommand{}, err)
 	}
 
-	requiredSigs := mapset.NewSet[string](entrypoint.CLI.Serve.RequiredSignatures...)
-	for _, sigName := range entrypoint.CLI.Serve.RequiredSignatures {
+	requiredSigs := mapset.NewSet[string](cfg.RequiredSignatures...)
+	for _, sigName := range cfg.RequiredSignatures {
 		if !requiredSigs.Contains(sigName) {
 			l.Error("Required signature is not configured as a public key", zap.String("keyname", sigName))
-			return errors.Join(&entrypoint.ErrCommand{}, errors.New("required signature not configured as public signature"))
+			return errors.Join(&cmdutil.ErrCommand{}, errors.New("required signature not configured as public signature"))
 		}
 	}
 
 	handlerConfig := &NixHandler{
 		Logger:        l,
 		StorePath:     storePath,
-		WantMassQuery: entrypoint.CLI.Serve.WantMassQuery,
-		Priority:      entrypoint.CLI.Serve.Priority,
+		WantMassQuery: cfg.WantMassQuery,
+		Priority:      cfg.Priority,
 		RequiredSignatures: lo.FilterSliceToMap(publicKeys, func(item nixtypes.NamedPublicKey) (string, nixtypes.NamedPublicKey, bool) {
 			return item.KeyName, item, requiredSigs.Contains(item.KeyName)
 		}),
 		StartTime:               startTime,
-		NarInfoFreshDuration:    entrypoint.CLI.Serve.NarInfoFreshDuration,
-		ExtendedMetadataSupport: entrypoint.CLI.Serve.ExtendedMetadataSupport,
+		NarInfoFreshDuration:    cfg.NarInfoFreshDuration,
+		ExtendedMetadataSupport: cfg.ExtendedMetadataSupport,
 		Signers:                 signers,
 		Store:                   store,
 	}
@@ -151,8 +152,8 @@ func Serve(cmdCtx *entrypoint.CmdContext) error {
 		},
 	)
 
-	webCtx, webCancel := context.WithCancel(cmdCtx.ctx)
-	listeners, errCh, listenerErr := multihttp.Listen(entrypoint.CLI.Serve.Listen, logger(handlerConfig))
+	webCtx, webCancel := context.WithCancel(cmdCtx.Ctx)
+	listeners, errCh, listenerErr := multihttp.Listen(cfg.Listen, logger(handlerConfig))
 	if listenerErr != nil {
 		l.Error("Error setting up listeners", zap.Error(listenerErr))
 		webCancel()
@@ -215,7 +216,7 @@ func (n *NixHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, name, _ := strings.Cut(r.URL.Path, "/")
 
 	// Handle the cache info response
-	if name == entrypoint.NixCacheInfoName {
+	if name == nixconsts.NixCacheInfoName {
 		cacheInfoResp := []byte(fmt.Sprintf(NixCacheInfoTemplate, n.StorePath, lo.Ternary(n.WantMassQuery, "1", "0"), n.Priority))
 
 		w.Header().Set(httpheaders.ContentType, "text/x-nix-cache-info")

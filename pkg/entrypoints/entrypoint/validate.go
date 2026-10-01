@@ -22,7 +22,7 @@ type ValidateConfig struct {
 // Validate checks the format of the NARinfo file against the serialization.
 func Validate(cmdCtx *CmdContext) error {
 	err := readPaths(cmdCtx, slices.Values(CLI.Validate.NarInfoFiles), func(path *pathlib.Path) error {
-		l := cmdCtx.logger
+		l := cmdCtx.Logger
 
 		var err error
 
@@ -35,7 +35,7 @@ func Validate(cmdCtx *CmdContext) error {
 		ninfo := nixtypes.NarInfo{}
 		err = ninfo.UnmarshalText(fileBytes)
 		if err != nil {
-			cmdCtx.stdOut.Write([]byte(
+			cmdCtx.StdOut.Write([]byte(
 				fmt.Sprintf("%s:%s:%s\n", color.CyanString("%s", path),
 					color.RedString("FAILREAD"), strings.ReplaceAll(err.Error(), "\n", "\\\\n"))))
 			return nil
@@ -44,7 +44,7 @@ func Validate(cmdCtx *CmdContext) error {
 		// Remarshal the file
 		remarshalled, err := ninfo.MarshalText()
 		if err != nil {
-			cmdCtx.stdOut.Write([]byte(
+			cmdCtx.StdOut.Write([]byte(
 				fmt.Sprintf("%s:%s:%s\n", color.CyanString("%s", path),
 					color.RedString("FAILMRSL"), strings.ReplaceAll(err.Error(), "\n", "\\\\n"))))
 			return nil
@@ -63,18 +63,18 @@ func Validate(cmdCtx *CmdContext) error {
 				// Ignore errors - write logs its own errors
 				_ = writeNInfo(l, path, ninfo)
 
-				cmdCtx.stdOut.Write([]byte(
+				cmdCtx.StdOut.Write([]byte(
 					fmt.Sprintf("%s:%s:%s\n", color.CyanString("%s", path),
 						color.YellowString("FIXEDFRM"), "Updated On-Disk Format")))
 			} else {
-				cmdCtx.stdOut.Write([]byte(
+				cmdCtx.StdOut.Write([]byte(
 					fmt.Sprintf("%s:%s:%s\n", color.CyanString("%s", path),
 						color.RedString("FAILFORM"), "On-Disk Does Not Match Reserialization")))
 			}
 			return nil
 		}
 
-		cmdCtx.stdOut.Write([]byte(
+		cmdCtx.StdOut.Write([]byte(
 			fmt.Sprintf("%s:%s:\n",
 				color.CyanString("%s", path), color.GreenString("GOODFORM"))))
 		return nil

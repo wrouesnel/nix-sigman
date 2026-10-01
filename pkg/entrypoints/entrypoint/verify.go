@@ -9,6 +9,7 @@ import (
 	"github.com/chigopher/pathlib"
 	"github.com/fatih/color"
 	"github.com/samber/lo"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/cmdutil"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
 )
@@ -24,17 +25,17 @@ type VerifyConfig struct {
 
 // Verify implements NARInfo and archive verification
 func Verify(cmdCtx *CmdContext) error {
-	publicKeys, err := loadPublicKeys(cmdCtx.logger)
+	publicKeys, err := cmdCtx.Keys.LoadPublicKeys(cmdCtx.Logger)
 	if err != nil {
-		cmdCtx.logger.Error("Error loading public keys", zap.Error(err))
+		cmdCtx.Logger.Error("Error loading public keys", zap.Error(err))
 		return errors.Join(&ErrCommand{}, err)
 	}
 
 	if CLI.Verify.IncludePrivateKeys {
-		cmdCtx.logger.Debug("Including private keys for verification")
-		privateKeys, err := loadPrivateKeys(cmdCtx.logger)
+		cmdCtx.Logger.Debug("Including private keys for verification")
+		privateKeys, err := cmdCtx.Keys.LoadPrivateKeys(cmdCtx.Logger)
 		if err != nil {
-			cmdCtx.logger.Error("Error loading private keys", zap.Error(err))
+			cmdCtx.Logger.Error("Error loading private keys", zap.Error(err))
 			return errors.Join(&ErrCommand{}, err)
 		}
 		for _, key := range privateKeys {
@@ -44,7 +45,7 @@ func Verify(cmdCtx *CmdContext) error {
 
 	verifyKeys := []nixtypes.NamedPublicKey{}
 	if lo.Contains(CLI.Verify.TrustedKeys, "*") {
-		cmdCtx.logger.Debug("Verify against ALL public keys")
+		cmdCtx.Logger.Debug("Verify against ALL public keys")
 		verifyKeys = publicKeys
 	} else {
 		desiredKeyNames := lo.SliceToMap(CLI.Verify.TrustedKeys, func(item string) (string, struct{}) {
@@ -54,18 +55,18 @@ func Verify(cmdCtx *CmdContext) error {
 			return lo.HasKey(desiredKeyNames, item.KeyName)
 		})
 	}
-	cmdCtx.logger.Debug("Signing Keys Set", zap.Int("num_trusted_keys", len(verifyKeys)))
+	cmdCtx.Logger.Debug("Signing Keys Set", zap.Int("num_trusted_keys", len(verifyKeys)))
 
 	if len(verifyKeys) == 0 {
 		return errors.Join(&ErrCommand{}, errors.New("no public keys selected"))
 	}
 
 	err = readPaths(cmdCtx, slices.Values(CLI.Verify.NarInfoFiles), func(path *pathlib.Path) error {
-		cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:", color.CyanString(path.String()))))
+		cmdCtx.StdOut.Write([]byte(fmt.Sprintf("%s:", color.CyanString(path.String()))))
 
-		l := cmdCtx.logger.With(zap.String("path", path.String()))
+		l := cmdCtx.Logger.With(zap.String("path", path.String()))
 
-		ninfo, err := loadNarInfo(l, path)
+		ninfo, err := cmdutil.LoadNarInfo(l, path)
 		if err != nil {
 			l.Warn("Could not load narinfo file", zap.Error(err))
 			return nil
@@ -91,30 +92,30 @@ func Verify(cmdCtx *CmdContext) error {
 			if CLI.Verify.ValidateHashes {
 				hashValid, _, err := narHashCheck(l, path, ninfo)
 				if hashValid {
-					cmdCtx.stdOut.Write([]byte(color.GreenString("GOODHASH")))
+					cmdCtx.StdOut.Write([]byte(color.GreenString("GOODHASH")))
 				} else if err != nil || !hashValid {
-					cmdCtx.stdOut.Write([]byte(color.RedString("FAILHASH")))
+					cmdCtx.StdOut.Write([]byte(color.RedString("FAILHASH")))
 				}
 			} else {
 				// Just report signature falidity
-				cmdCtx.stdOut.Write([]byte(color.GreenString("GOODSIGN")))
+				cmdCtx.StdOut.Write([]byte(color.GreenString("GOODSIGN")))
 			}
-			cmdCtx.stdOut.Write([]byte(":"))
-			cmdCtx.stdOut.Write([]byte(color.WhiteString(strings.Join(successfulKeyNames, " "))))
+			cmdCtx.StdOut.Write([]byte(":"))
+			cmdCtx.StdOut.Write([]byte(color.WhiteString(strings.Join(successfulKeyNames, " "))))
 		} else {
-			cmdCtx.stdOut.Write([]byte(color.RedString("FAILSIGN")))
-			cmdCtx.stdOut.Write([]byte(":"))
+			cmdCtx.StdOut.Write([]byte(color.RedString("FAILSIGN")))
+			cmdCtx.StdOut.Write([]byte(":"))
 			// Check hash anyway but don't report anything positive
 			if CLI.Verify.ValidateHashes {
 				hashValid, _, err := narHashCheck(l, path, ninfo)
 				if hashValid {
-					cmdCtx.stdOut.Write([]byte(color.GreenString("Hash OK")))
+					cmdCtx.StdOut.Write([]byte(color.GreenString("Hash OK")))
 				} else if err != nil || !hashValid {
-					cmdCtx.stdOut.Write([]byte(color.RedString("Hash Fail")))
+					cmdCtx.StdOut.Write([]byte(color.RedString("Hash Fail")))
 				}
 			}
 		}
-		cmdCtx.stdOut.Write([]byte("\n"))
+		cmdCtx.StdOut.Write([]byte("\n"))
 		return nil
 	})
 	return err

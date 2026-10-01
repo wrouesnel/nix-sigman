@@ -9,6 +9,7 @@ import (
 	"github.com/chigopher/pathlib"
 	"github.com/fatih/color"
 	"github.com/samber/lo"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/cmdutil"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"github.com/wrouesnel/nix-sigman/pkg/resigning"
 	"go.uber.org/zap"
@@ -24,24 +25,24 @@ type SignConfig struct {
 
 // Sign implements (re)-signing a NARInfo file
 func Sign(cmdCtx *CmdContext) error {
-	l := cmdCtx.logger
+	l := cmdCtx.Logger
 
-	privateKeys, err := loadPrivateKeys(l)
+	privateKeys, err := cmdCtx.Keys.LoadPrivateKeys(l)
 	if err != nil {
-		cmdCtx.logger.Error("Error loading private keys", zap.Error(err))
+		cmdCtx.Logger.Error("Error loading private keys", zap.Error(err))
 		return errors.Join(&ErrCommand{}, err)
 	}
 
 	l.Debug("Loading public keys")
-	publicKeys, err := loadPublicKeys(l)
+	publicKeys, err := cmdCtx.Keys.LoadPublicKeys(l)
 	if err != nil {
-		cmdCtx.logger.Error("Error loading public keys", zap.Error(err))
+		cmdCtx.Logger.Error("Error loading public keys", zap.Error(err))
 		return errors.Join(&ErrCommand{}, err)
 	}
 
 	signingKeys := []nixtypes.NamedPrivateKey{}
 	if lo.Contains(CLI.Sign.SigningKeys, "*") {
-		cmdCtx.logger.Debug("Sign with ALL private keys")
+		cmdCtx.Logger.Debug("Sign with ALL private keys")
 		signingKeys = privateKeys
 	} else {
 		desiredKeyNames := lo.SliceToMap(CLI.Sign.SigningKeys, func(item string) (string, struct{}) {
@@ -87,9 +88,9 @@ func Sign(cmdCtx *CmdContext) error {
 	}
 
 	err = readPaths(cmdCtx, slices.Values(CLI.Sign.NarInfoFiles), func(path *pathlib.Path) error {
-		l := cmdCtx.logger.With(zap.String("path", path.String()))
+		l := cmdCtx.Logger.With(zap.String("path", path.String()))
 
-		ninfo, err := loadNarInfo(l, path)
+		ninfo, err := cmdutil.LoadNarInfo(l, path)
 		if err != nil {
 			l.Warn("Could not load narinfo file", zap.Error(err))
 			return nil
@@ -121,12 +122,12 @@ func Sign(cmdCtx *CmdContext) error {
 
 		if errDuringSigning {
 			l.Warn("Errors while signing - no changes made")
-			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path.String()), color.RedString("FAILSIGN"), strings.Join(signatureStrings, " "))))
+			cmdCtx.StdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path.String()), color.RedString("FAILSIGN"), strings.Join(signatureStrings, " "))))
 			return nil
 		}
 
 		if !didNewSignature {
-			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path.String()), color.WhiteString("NOCHANGE"), strings.Join(signatureStrings, " "))))
+			cmdCtx.StdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path.String()), color.WhiteString("NOCHANGE"), strings.Join(signatureStrings, " "))))
 		} else {
 			if CLI.Sign.BackupNARInfos {
 				if err = backNinfo(l, path); err != nil {
@@ -136,7 +137,7 @@ func Sign(cmdCtx *CmdContext) error {
 			}
 			// Ignore errors - write logs its own errors
 			_ = writeNInfo(l, path, ninfo)
-			cmdCtx.stdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path.String()), color.YellowString("SIGNUPDT"), strings.Join(signatureStrings, " "))))
+			cmdCtx.StdOut.Write([]byte(fmt.Sprintf("%s:%s:%s\n", color.CyanString(path.String()), color.YellowString("SIGNUPDT"), strings.Join(signatureStrings, " "))))
 		}
 
 		return nil

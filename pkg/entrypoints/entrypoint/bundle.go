@@ -16,6 +16,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/mholt/archives"
 	"github.com/wrouesnel/go-nix/nar"
+	"github.com/wrouesnel/nix-sigman/pkg/nixconsts"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
 	_ "modernc.org/sqlite"
@@ -46,11 +47,11 @@ type NixDBValidPaths struct {
 
 // NixCacheInfoName is the file which should be at the root of the output directory so
 // it works as an HTTP cache
-const NixCacheInfoName = "nix-cache-info"
+const NixCacheInfoName = nixconsts.NixCacheInfoName
 
 // Bundle copies a given item out of the Nix Store
 func Bundle(cmdCtx *CmdContext) error {
-	l := cmdCtx.logger
+	l := cmdCtx.Logger
 
 	var nixDbPath string
 
@@ -90,7 +91,7 @@ func Bundle(cmdCtx *CmdContext) error {
 	}
 	l.Debug("Database Connected")
 
-	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Bundle.OutputDir), pathlib.PathWithAfero(cmdCtx.fs)).Clean()
+	outputDir := pathlib.NewPath(NormalizeOutputDir(CLI.Bundle.OutputDir), pathlib.PathWithAfero(cmdCtx.Fs)).Clean()
 	l.Debug("Ensuring output directory exists", zap.String("output_dir", outputDir.String()))
 	if outputDir.Name() != "/" {
 		if err := outputDir.MkdirAllMode(os.FileMode(0755)); err != nil {
@@ -99,7 +100,7 @@ func Bundle(cmdCtx *CmdContext) error {
 	}
 	narOutputDir := outputDir.Join(CLI.Bundle.NarOutputDir).Clean()
 	if filepath.IsAbs(CLI.Bundle.NarOutputDir) {
-		narOutputDir = pathlib.NewPath(CLI.Bundle.NarOutputDir, pathlib.PathWithAfero(cmdCtx.fs))
+		narOutputDir = pathlib.NewPath(CLI.Bundle.NarOutputDir, pathlib.PathWithAfero(cmdCtx.Fs))
 	}
 	l.Debug("Ensuring NAR output directory exists", zap.String("nar_output_dir", narOutputDir.String()))
 	if err := narOutputDir.MkdirAllMode(os.FileMode(0755)); err != nil {

@@ -31,39 +31,39 @@ func readNinfoFromPaths(cmdCtx *CmdContext, paths []string, cb func(path *pathli
 		if path == "-" {
 			continue
 		}
-		fileBytes, err := pathlib.NewPath(path, pathlib.PathWithAfero(cmdCtx.fs)).ReadFile()
+		fileBytes, err := pathlib.NewPath(path, pathlib.PathWithAfero(cmdCtx.Fs)).ReadFile()
 		if err != nil {
-			cmdCtx.logger.Warn("Could not read file", zap.String("path", path), zap.Error(err))
+			cmdCtx.Logger.Warn("Could not read file", zap.String("path", path), zap.Error(err))
 			commandErr = errors.Join(&ErrCommand{}, errors.New("not all files were read"))
 			continue
 		}
 		ninfo := nixtypes.NarInfo{}
 		if err := ninfo.UnmarshalText(fileBytes); err != nil {
-			cmdCtx.logger.Warn("Could not parse file", zap.String("path", path), zap.Error(err))
+			cmdCtx.Logger.Warn("Could not parse file", zap.String("path", path), zap.Error(err))
 			commandErr = errors.Join(&ErrCommand{}, errors.New("not all files were read"))
 			continue
 		}
-		if err := cb(pathlib.NewPath(path, pathlib.PathWithAfero(cmdCtx.fs)), &ninfo); err != nil {
-			cmdCtx.logger.Error("Aborting error during path handling", zap.String("path", path), zap.Error(err))
+		if err := cb(pathlib.NewPath(path, pathlib.PathWithAfero(cmdCtx.Fs)), &ninfo); err != nil {
+			cmdCtx.Logger.Error("Aborting error during path handling", zap.String("path", path), zap.Error(err))
 			return errors.Join(&ErrCommand{}, err)
 		}
 	}
 	// Read stdin last
 	if readStdin {
-		fileBytes, err := io.ReadAll(cmdCtx.stdIn)
+		fileBytes, err := io.ReadAll(cmdCtx.StdIn)
 		if err != nil {
-			cmdCtx.logger.Warn("Could not parse stdin input", zap.Error(err))
+			cmdCtx.Logger.Warn("Could not parse stdin input", zap.Error(err))
 			commandErr = errors.Join(&ErrCommand{}, errors.New("not all files were read"))
 		} else {
 			ninfo := nixtypes.NarInfo{}
 			if err := ninfo.UnmarshalText(fileBytes); err != nil {
-				cmdCtx.logger.Warn("Could not parse stdin", zap.Error(err))
+				cmdCtx.Logger.Warn("Could not parse stdin", zap.Error(err))
 				commandErr = errors.Join(&ErrCommand{}, errors.New("not all files were read"))
 			} else {
 				// represent stdin as a memmap fs path
 				stdinPath := pathlib.NewPath("-", pathlib.PathWithAfero(afero.NewMemMapFs()))
 				if err := cb(stdinPath, &ninfo); err != nil {
-					cmdCtx.logger.Error("Aborting error during path handling", zap.String("path", "-"), zap.Error(err))
+					cmdCtx.Logger.Error("Aborting error during path handling", zap.String("path", "-"), zap.Error(err))
 					return errors.Join(&ErrCommand{}, err)
 				}
 			}
@@ -81,18 +81,18 @@ func readPaths(ctx *CmdContext, paths iter.Seq[string], cb func(path *pathlib.Pa
 			readStdin = true
 			continue
 		}
-		if err := cb(pathlib.NewPath(path, pathlib.PathWithAfero(ctx.fs))); err != nil {
-			ctx.logger.Error("Aborting error during path handling",
+		if err := cb(pathlib.NewPath(path, pathlib.PathWithAfero(ctx.Fs))); err != nil {
+			ctx.Logger.Error("Aborting error during path handling",
 				zap.String("path", path), zap.Error(err))
 			return errors.Join(&ErrCommand{}, err)
 		}
 	}
 
 	if readStdin {
-		sc := bufio.NewScanner(ctx.stdIn)
+		sc := bufio.NewScanner(ctx.StdIn)
 		for sc.Scan() {
-			if err := ctx.ctx.Err(); err != nil {
-				ctx.logger.Warn("Context closed during iteration", zap.String("msg", err.Error()))
+			if err := ctx.Ctx.Err(); err != nil {
+				ctx.Logger.Warn("Context closed during iteration", zap.String("msg", err.Error()))
 				return errors.Join(&ErrCommand{}, err)
 			}
 
@@ -103,8 +103,8 @@ func readPaths(ctx *CmdContext, paths iter.Seq[string], cb func(path *pathlib.Pa
 				continue
 			}
 
-			if err := cb(pathlib.NewPath(path, pathlib.PathWithAfero(ctx.fs))); err != nil {
-				ctx.logger.Error("Aborting error during path handling",
+			if err := cb(pathlib.NewPath(path, pathlib.PathWithAfero(ctx.Fs))); err != nil {
+				ctx.Logger.Error("Aborting error during path handling",
 					zap.String("path", path), zap.Error(err))
 				return errors.Join(&ErrCommand{}, err)
 			}
@@ -114,69 +114,6 @@ func readPaths(ctx *CmdContext, paths iter.Seq[string], cb func(path *pathlib.Pa
 		}
 	}
 	return nil
-}
-
-func loadPrivateKeys(logger *zap.Logger) ([]nixtypes.NamedPrivateKey, error) {
-	privateKeys := []nixtypes.NamedPrivateKey{}
-	for _, path := range CLI.PrivateKeyFiles {
-		fh, err := os.Open(path)
-		if err != nil {
-			return privateKeys, err
-		}
-		keys, err := nixtypes.ParsePrivateKeys(fh)
-		if err != nil {
-			return privateKeys, err
-		}
-		privateKeys = append(privateKeys, keys...)
-	}
-	for _, key := range CLI.PrivateKeys {
-		r := nixtypes.NamedPrivateKey{}
-		if err := r.UnmarshalText([]byte(key)); err != nil {
-			return privateKeys, err
-		}
-		privateKeys = append(privateKeys, r)
-	}
-	logger.Debug("Loaded Private Keys", zap.Int("private_keys_count", len(privateKeys)))
-	return privateKeys, nil
-}
-
-func loadPublicKeys(logger *zap.Logger) ([]nixtypes.NamedPublicKey, error) {
-	publicKeys := []nixtypes.NamedPublicKey{}
-	for _, path := range CLI.PublicKeyFiles {
-		fh, err := os.Open(path)
-		if err != nil {
-			return publicKeys, err
-		}
-		keys, err := nixtypes.ParsePublicKeys(fh)
-		if err != nil {
-			return publicKeys, err
-		}
-		publicKeys = append(publicKeys, keys...)
-	}
-	for _, key := range CLI.PublicKeys {
-		r := nixtypes.NamedPublicKey{}
-		if err := r.UnmarshalText([]byte(key)); err != nil {
-			return publicKeys, err
-		}
-		publicKeys = append(publicKeys, r)
-	}
-	logger.Debug("Loaded Public Keys", zap.Int("public_keys_count", len(publicKeys)))
-	return publicKeys, nil
-}
-
-func loadNarInfo(l *zap.Logger, path *pathlib.Path) (nixtypes.NarInfo, error) {
-	fileBytes, err := path.ReadFile()
-	if err != nil {
-		//l.Warn("Could not read file", zap.Error(err))
-		return nixtypes.NarInfo{}, err
-	}
-
-	ninfo := nixtypes.NarInfo{}
-	if err := ninfo.UnmarshalText(fileBytes); err != nil {
-		l.Warn("Could not parse file", zap.Error(err))
-		return nixtypes.NarInfo{}, err
-	}
-	return ninfo, nil
 }
 
 // narHashCheck checks the actual file hash.

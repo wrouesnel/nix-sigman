@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/afero"
 	"github.com/wrouesnel/kongutil"
 	nix_http_cachefs "github.com/wrouesnel/nix-http-cachefs"
+	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/cmdutil"
 	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/proxy"
 	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/serve"
 	"go.uber.org/zap/zapcore"
@@ -47,11 +48,7 @@ var CLI struct {
 	FsBackend string `help:"Filesystem backend for the binary cache" enum:"os,s3,nix-http-cache" default:"os"`
 	FsOpts    string `help:"Additional options for the filesystem handler" default:""`
 
-	PrivateKeyFiles []string `help:"Private Key Files" type:"existingfile"`
-	PublicKeyFiles  []string `help:"Public Key Files" type:"existingfile"`
-
-	PrivateKeys []string `help:"Private Keys"`
-	PublicKeys  []string `help:"Public Keys"`
+	Keys cmdutil.KeyConfig `embed:""`
 
 	Debug struct {
 		FromBytes struct {
@@ -183,15 +180,16 @@ func Entrypoint(args []string, stdIn io.ReadCloser, stdOut io.Writer, stdErr io.
 	//assets.UseFilesystem(CLI.Assets.UseFilesystem)
 
 	cmdCtx := &CmdContext{
-		logger: logger,
-		ctx:    sigCtx,
-		stdIn:  stdIn,
-		stdOut: stdOut,
+		Logger: logger,
+		Ctx:    sigCtx,
+		StdIn:  stdIn,
+		StdOut: stdOut,
+		Keys:   &CLI.Keys,
 	}
 
 	switch CLI.FsBackend {
 	case "os":
-		cmdCtx.fs = afero.NewOsFs()
+		cmdCtx.Fs = afero.NewOsFs()
 		if CLI.FsOpts != "" {
 			logger.Error("--fs-opts has no effect for the OS backend and must be blank")
 			return 1
@@ -242,7 +240,7 @@ func Entrypoint(args []string, stdIn io.ReadCloser, stdOut io.Writer, stdErr io.
 			logger.Error("Error initializing the S3 FS")
 			return 1
 		}
-		cmdCtx.fs = s3fs
+		cmdCtx.Fs = s3fs
 	case "nix-http-cache":
 		rdr := csv.NewReader(strings.NewReader(CLI.FsOpts))
 		rdr.LazyQuotes = true
@@ -297,7 +295,7 @@ func Entrypoint(args []string, stdIn io.ReadCloser, stdOut io.Writer, stdErr io.
 			logger.Error("Bad configuration for nix-cache-httpfs backend", zap.String("filesystem", CLI.FsBackend), zap.Error(err))
 			return 1
 		}
-		cmdCtx.fs = fs
+		cmdCtx.Fs = fs
 	default:
 		logger.Error("Invalid filesystem backend", zap.String("filesystem", CLI.FsBackend))
 		return 1
