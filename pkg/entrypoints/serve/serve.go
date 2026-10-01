@@ -298,7 +298,7 @@ func (n *NixHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if ifModifiedSinceHeader := r.Header.Get(httpheaders.IfModifiedSince); ifModifiedSinceHeader != "" {
 		ifModifiedSince, err := time.Parse(http.TimeFormat, ifModifiedSinceHeader)
 		if err == nil {
-			if lastModified.Before(ifModifiedSince) {
+			if !lastModified.Truncate(time.Second).After(ifModifiedSince) {
 				// File has not been modified (or program not restarted) compared to cache value.
 				// Return not modified.
 				w.WriteHeader(http.StatusNotModified)
@@ -365,7 +365,7 @@ func (n *NixHandler) handleNARInfo(w http.ResponseWriter, r *http.Request, ninfo
 	if ifModifiedSinceHeader := r.Header.Get(httpheaders.IfModifiedSince); ifModifiedSinceHeader != "" {
 		ifModifiedSince, err := time.Parse(http.TimeFormat, ifModifiedSinceHeader)
 		if err == nil {
-			if lastModified.Before(ifModifiedSince) {
+			if !lastModified.Truncate(time.Second).After(ifModifiedSince) {
 				// File has not been modified (or program not restarted) compared to cache value.
 				// Return not modified.
 				w.WriteHeader(http.StatusNotModified)
