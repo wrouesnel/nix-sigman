@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -43,6 +44,7 @@ type ServeConfig struct {
 	ExtendedMetadataSupport   bool                            `help:"Add support for query parameters to return additional metadata" default:"false"`
 	NarPathFormat             nixstore.NarURLFormatConvention `help:"Format convention to use for the NAR URLs" default:"auto"`
 	NoPerformanceCheck        bool                            `help:"Disable the filehash query performance check" default:"false"`
+	Push                      PushConfig                      `embed:"" prefix:"push-"`
 	//CacheEnabled              bool     `help:"Enable binary caching"`
 	//CacheFsBackend            string   `help:"Filesystem backend for caching system" default:"os"`
 	//CacheFsOpts               string   `help:"Filesystem backend optional config" default:""`
@@ -137,6 +139,47 @@ func Serve(cmdCtx *cmdutil.CmdContext, cfg *ServeConfig) error {
 		}
 	}
 
+	pushIndexPath := cfg.Push.Index
+	if !filepath.IsAbs(pushIndexPath) {
+		pushIndexPath = root.Join(pushIndexPath).String()
+	}
+	var pushIndex PushIndex
+	var pushHandler http.Handler
+	if cfg.Push.Enabled {
+		authMiddleware, err := cfg.Push.newAuthMiddleware(l)
+		if err != nil {
+			l.Error("Error configuring push authentication", zap.Error(err))
+			return errors.Join(&cmdutil.ErrCommand{}, err)
+		}
+		writer, err := nixstore.NewNixStoreWriter(nixDb, nixStoreRoot, storePath)
+		if err != nil {
+			l.Error("Push is enabled but the store cannot be written", zap.Error(err))
+			return errors.Join(&cmdutil.ErrCommand{}, err)
+		}
+		defer writer.Close()
+		pushIndex, err = OpenPushIndex(pushIndexPath, true)
+		if err != nil {
+			l.Error("Could not open push index", zap.Error(err))
+			return errors.Join(&cmdutil.ErrCommand{}, err)
+		}
+		defer pushIndex.Close()
+		push, err := NewPushHandler(l, writer, pushIndex, cfg.Push.StagingDir, cfg.Push.StagingTTL, cfg.Push.MaxNarSize)
+		if err != nil {
+			return errors.Join(&cmdutil.ErrCommand{}, err)
+		}
+		defer push.Close()
+		pushHandler = authMiddleware.Wrap(push)
+		l.Info("Push enabled", zap.String("staging_dir", push.stagingDir), zap.String("index", pushIndexPath))
+	} else if _, err := os.Stat(pushIndexPath); err == nil {
+		// Keep serving paths by the URLs clients pushed them under.
+		pushIndex, err = OpenPushIndex(pushIndexPath, false)
+		if err != nil {
+			l.Error("Could not open push index", zap.Error(err))
+			return errors.Join(&cmdutil.ErrCommand{}, err)
+		}
+		defer pushIndex.Close()
+	}
+
 	handlerConfig := &NixHandler{
 		Logger:        l,
 		StorePath:     storePath,
@@ -150,6 +193,8 @@ func Serve(cmdCtx *cmdutil.CmdContext, cfg *ServeConfig) error {
 		ExtendedMetadataSupport: cfg.ExtendedMetadataSupport,
 		Signers:                 signers,
 		Store:                   store,
+		Push:                    pushHandler,
+		PushIndex:               pushIndex,
 	}
 
 	l.Info("Starting HTTP server")
@@ -216,11 +261,28 @@ type NixHandler struct {
 
 	Signers resigning.ConditionalResigners
 	Store   nixstore.NixStore
+	// Push handles uploads. If nil, the cache is read-only.
+	Push http.Handler
+	// PushIndex maps the URLs paths were pushed under to store paths. May be nil.
+	PushIndex PushIndex
 }
 
 func (n *NixHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Handle both GET and HEAD.
 	defer r.Body.Close()
+
+	switch r.Method {
+	case http.MethodGet, http.MethodHead:
+	case http.MethodPut:
+		if n.Push != nil {
+			n.Push.ServeHTTP(w, r)
+			return
+		}
+		fallthrough
+	default:
+		w.Header().Set("Allow", lo.Ternary(n.Push != nil, "GET, HEAD, PUT", "GET, HEAD"))
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 
 	_, name, _ := strings.Cut(r.URL.Path, "/")
 
@@ -261,6 +323,20 @@ func (n *NixHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Treat as a nar file request
+	if n.PushIndex != nil {
+		storePath, compression, found, err := n.PushIndex.Lookup(name)
+		if err != nil {
+			n.Logger.Error("Push index lookup failed", zap.Error(err))
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write([]byte(fmt.Sprintf("error: %s\n", name)))
+			return
+		}
+		if found {
+			n.handlePushedNar(w, r, name, storePath, compression)
+			return
+		}
+	}
+
 	hashName, _, _ := strings.Cut(path.Base(name), ".")
 	pathInStore, err := n.Store.GetStorePathByURL(hashName)
 	if err != nil {
@@ -332,6 +408,54 @@ func (n *NixHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	return
+}
+
+// handlePushedNar serves a NAR from the URL a client pushed it under, compressed the way
+// the client's cached narinfo expects. Nix verifies the NarHash rather than the FileHash
+// of downloads, so the recompressed file needn't be byte-identical to the upload.
+func (n *NixHandler) handlePushedNar(w http.ResponseWriter, r *http.Request, name string, storePath string, compression string) {
+	ninfo, registrationTime, err := n.Store.GetNarInfo(storePath)
+	if err != nil {
+		_, notFound := errors.AsType[*nixstore.ErrNotFound](err)
+		_, invalid := errors.AsType[*nixstore.ErrInvalid](err)
+		if notFound || invalid {
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(fmt.Sprintf("not found: %s\n", name)))
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprintf("error: %s\n", name)))
+		return
+	}
+	c, err := compressionCodec(compression)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(fmt.Sprintf("error: %s\n", name)))
+		return
+	}
+
+	w.Header().Set(httpheaders.LastModified, registrationTime.Format(http.TimeFormat))
+	w.Header().Set(httpheaders.CacheControl, "public, immutable")
+	if c == nil {
+		w.Header().Set(httpheaders.ContentLength, fmt.Sprintf("%d", ninfo.NarSize))
+	}
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodHead {
+		return
+	}
+
+	if c == nil {
+		err = n.Store.GetNar(w, &ninfo)
+	} else {
+		var cw io.WriteCloser
+		if cw, err = c.OpenWriter(w); err == nil {
+			err = errors.Join(n.Store.GetNar(cw, &ninfo), cw.Close())
+		}
+	}
+	if err != nil {
+		// Headers are sent, so all we can do is truncate the response.
+		n.Logger.Error("Error writing pushed NAR", zap.String("url", name), zap.Error(err))
+	}
 }
 
 // handleNARInfo formats a NARinfo file for serving too a client

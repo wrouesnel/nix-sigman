@@ -2,6 +2,7 @@ package debug
 
 import (
 	"archive/tar"
+	"bufio"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"github.com/chigopher/pathlib"
 	"github.com/fatih/color"
 	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/cmdutil"
+	"github.com/wrouesnel/nix-sigman/pkg/httpauth"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
 	"io"
@@ -19,15 +21,20 @@ import (
 
 // Cmd groups the debugging subcommands.
 type Cmd struct {
-	FromBytes   FromBytesCmd   `cmd:"" help:"Output the given bytes as a specific format"`
-	ToBytes     ToBytesCmd     `cmd:"" help:"Convert the given input bytes to a specific format"`
-	ConvertHash ConvertHashCmd `cmd:"" help:"Convert between hex and Nix hash encodings"`
-	Fingerprint FingerprintCmd `cmd:"" help:"Generate the fingerprint for a NARInfo files"`
-	Sign        SignCmd        `cmd:"" help:"Generate signatures for NARInfo files"`
-	GenerateKey GenerateKeyCmd `cmd:"" help:"Generate a new key to stdout"`
-	PublicKey   PublicKeyCmd   `cmd:"" help:"Get public key from supplied key on stdin"`
-	ExtractTar  ExtractTarCmd  `cmd:"" help:"Extract tarball containing a binary cache to the target"`
-	List        ListCmd        `cmd:"" help:"List all narinfo files in target"`
+	FromBytes    FromBytesCmd    `cmd:"" help:"Output the given bytes as a specific format"`
+	ToBytes      ToBytesCmd      `cmd:"" help:"Convert the given input bytes to a specific format"`
+	ConvertHash  ConvertHashCmd  `cmd:"" help:"Convert between hex and Nix hash encodings"`
+	Fingerprint  FingerprintCmd  `cmd:"" help:"Generate the fingerprint for a NARInfo files"`
+	Sign         SignCmd         `cmd:"" help:"Generate signatures for NARInfo files"`
+	GenerateKey  GenerateKeyCmd  `cmd:"" help:"Generate a new key to stdout"`
+	PublicKey    PublicKeyCmd    `cmd:"" help:"Get public key from supplied key on stdin"`
+	ExtractTar   ExtractTarCmd   `cmd:"" help:"Extract tarball containing a binary cache to the target"`
+	List         ListCmd         `cmd:"" help:"List all narinfo files in target"`
+	HashPassword HashPasswordCmd `cmd:"" help:"Hash a password read from stdin for a serve push password file"`
+}
+
+type HashPasswordCmd struct {
+	Username string `help:"Output a complete password file line for this username"`
 }
 
 type FromBytesCmd struct {
@@ -164,6 +171,29 @@ func (c *GenerateKeyCmd) Run(cmdCtx *cmdutil.CmdContext) error {
 	}
 	cmdCtx.StdOut.Write([]byte(privateKey.String()))
 	cmdCtx.StdOut.Write([]byte("\n"))
+	return nil
+}
+
+func (c *HashPasswordCmd) Run(cmdCtx *cmdutil.CmdContext) error {
+	line, err := bufio.NewReader(cmdCtx.StdIn).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return errors.Join(&cmdutil.ErrCommand{}, err)
+	}
+	password := strings.TrimRight(line, "\r\n")
+	if password == "" {
+		return errors.Join(&cmdutil.ErrCommand{}, errors.New("no password supplied on stdin"))
+	}
+	if strings.Contains(c.Username, ":") {
+		return errors.Join(&cmdutil.ErrCommand{}, errors.New("usernames cannot contain ':'"))
+	}
+	hash, err := httpauth.HashPassword(password)
+	if err != nil {
+		return errors.Join(&cmdutil.ErrCommand{}, err)
+	}
+	if c.Username != "" {
+		hash = c.Username + ":" + hash
+	}
+	cmdCtx.StdOut.Write([]byte(hash + "\n"))
 	return nil
 }
 
