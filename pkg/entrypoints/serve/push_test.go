@@ -31,6 +31,7 @@ type fakeWriter struct {
 	mtx      sync.Mutex
 	valid    map[string]bool
 	imported map[string][]byte
+	stored   map[string]*nixtypes.NarInfo
 	err      error
 }
 
@@ -52,7 +53,26 @@ func (f *fakeWriter) ImportNar(_ context.Context, ninfo *nixtypes.NarInfo, narRe
 	defer f.mtx.Unlock()
 	f.valid[ninfo.StorePath] = true
 	f.imported[ninfo.StorePath] = data
+	stored := *ninfo
+	f.stored[ninfo.StorePath] = &stored
 	return true, nil
+}
+
+func (f *fakeWriter) SignPath(storePath string, sign func(ninfo *nixtypes.NarInfo) (bool, error)) (bool, error) {
+	f.mtx.Lock()
+	defer f.mtx.Unlock()
+	if !f.valid[storePath] {
+		return false, &nixstore.ErrNotFound{}
+	}
+	ninfo := f.stored[storePath]
+	if ninfo == nil {
+		ninfo = &nixtypes.NarInfo{StorePath: storePath, Extra: map[string]string{}}
+	}
+	signed, err := sign(ninfo)
+	if signed {
+		f.stored[storePath] = ninfo
+	}
+	return signed, err
 }
 
 func (f *fakeWriter) Close() error { return nil }
@@ -73,7 +93,7 @@ func (s *PushSuite) SetUpTest(c *C) {
 
 func (s *PushSuite) setUp(c *C, ttl time.Duration, maxNarSize int64) {
 	var err error
-	s.writer = &fakeWriter{valid: map[string]bool{}, imported: map[string][]byte{}}
+	s.writer = &fakeWriter{valid: map[string]bool{}, imported: map[string][]byte{}, stored: map[string]*nixtypes.NarInfo{}}
 	s.index, err = serve.OpenPushIndex(filepath.Join(c.MkDir(), "state", "push-index.sqlite"), true)
 	c.Assert(err, IsNil)
 	s.stagingDir = c.MkDir()

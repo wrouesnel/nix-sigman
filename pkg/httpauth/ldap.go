@@ -141,17 +141,17 @@ func (a *LDAPAuthenticator) findUser(conn ldapConn, username string) (string, er
 	return result.Entries[0].DN, nil
 }
 
-// isGroupMember checks whether the user DN is a member of any of the push groups.
-func (a *LDAPAuthenticator) isGroupMember(conn ldapConn, username string, userDN string) (bool, error) {
+// isGroupMember checks whether the user DN is a member of any of the groups.
+func (a *LDAPAuthenticator) isGroupMember(conn ldapConn, username string, userDN string, groupDNs []string) (bool, error) {
 	filter := strings.NewReplacer("{dn}", ldap.EscapeFilter(userDN), "{username}", ldap.EscapeFilter(username)).
 		Replace(a.cfg.GroupFilter)
-	for _, groupDN := range a.cfg.GroupDN {
+	for _, groupDN := range groupDNs {
 		result, err := conn.Search(ldap.NewSearchRequest(groupDN,
 			ldap.ScopeBaseObject, ldap.NeverDerefAliases, 1, int(a.cfg.Timeout.Seconds()), false,
 			filter, []string{"dn"}, nil))
 		if err != nil {
 			if ldap.IsErrorWithCode(err, ldap.LDAPResultNoSuchObject) {
-				a.logger.Warn("Configured LDAP push group does not exist", zap.String("group_dn", groupDN))
+				a.logger.Warn("Configured LDAP group does not exist", zap.String("group_dn", groupDN))
 				continue
 			}
 			return false, err
@@ -189,7 +189,7 @@ func (a *LDAPAuthenticator) Authenticate(_ context.Context, username, password s
 	if err := a.bindSearch(conn); err != nil {
 		return Denied, err
 	}
-	member, err := a.isGroupMember(conn, username, userDN)
+	member, err := a.isGroupMember(conn, username, userDN, a.cfg.GroupDN)
 	if err != nil {
 		return Denied, err
 	}
@@ -200,8 +200,16 @@ func (a *LDAPAuthenticator) Authenticate(_ context.Context, username, password s
 	return Allowed, nil
 }
 
-// IsAuthorized checks group membership for a user authenticated by another method.
-func (a *LDAPAuthenticator) IsAuthorized(_ context.Context, username string) (bool, error) {
+// IsAuthorized checks push group membership for a user authenticated by another method.
+func (a *LDAPAuthenticator) IsAuthorized(ctx context.Context, username string) (bool, error) {
+	return a.IsMemberOfAny(ctx, username, a.cfg.GroupDN)
+}
+
+// IsMemberOfAny checks whether the directory user is a member of any of the groups.
+func (a *LDAPAuthenticator) IsMemberOfAny(_ context.Context, username string, groupDNs []string) (bool, error) {
+	if len(groupDNs) == 0 {
+		return false, nil
+	}
 	conn, err := a.connect()
 	if err != nil {
 		return false, err
@@ -211,5 +219,5 @@ func (a *LDAPAuthenticator) IsAuthorized(_ context.Context, username string) (bo
 	if err != nil || userDN == "" {
 		return false, err
 	}
-	return a.isGroupMember(conn, username, userDN)
+	return a.isGroupMember(conn, username, userDN, groupDNs)
 }

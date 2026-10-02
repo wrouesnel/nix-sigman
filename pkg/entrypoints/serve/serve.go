@@ -144,9 +144,14 @@ func Serve(cmdCtx *cmdutil.CmdContext, cfg *ServeConfig) error {
 		pushIndexPath = root.Join(pushIndexPath).String()
 	}
 	var pushIndex PushIndex
-	var pushHandler http.Handler
+	var pushHandler, rulesHandler http.Handler
+	if cfg.Push.RulesACLFile != "" && !cfg.Push.Enabled {
+		err := errors.New("the resigning rules API requires push to be enabled")
+		l.Error("Invalid configuration", zap.Error(err))
+		return errors.Join(&cmdutil.ErrCommand{}, err)
+	}
 	if cfg.Push.Enabled {
-		authMiddleware, err := cfg.Push.newAuthMiddleware(l)
+		authMiddleware, ldapAuth, err := cfg.Push.newAuthMiddleware(l)
 		if err != nil {
 			l.Error("Error configuring push authentication", zap.Error(err))
 			return errors.Join(&cmdutil.ErrCommand{}, err)
@@ -169,6 +174,33 @@ func Serve(cmdCtx *cmdutil.CmdContext, cfg *ServeConfig) error {
 		}
 		defer push.Close()
 		pushHandler = authMiddleware.Wrap(push)
+
+		if cfg.Push.RulesACLFile != "" {
+			var groups GroupChecker
+			if ldapAuth != nil {
+				groups = ldapAuth
+			}
+			keyNames := lo.Map(privateKeys, func(item nixtypes.NamedPrivateKey, _ int) string { return item.KeyName })
+			acl, err := LoadRuleACL(cfg.Push.RulesACLFile, keyNames, groups, cfg.Push.AuthCacheTTL)
+			if err != nil {
+				l.Error("Could not load rule ACL", zap.Error(err))
+				return errors.Join(&cmdutil.ErrCommand{}, err)
+			}
+			rulesDBPath := cfg.Push.RulesDB
+			if !filepath.IsAbs(rulesDBPath) {
+				rulesDBPath = root.Join(rulesDBPath).String()
+			}
+			ruleStore, err := resigning.OpenRuleStore(rulesDBPath)
+			if err != nil {
+				l.Error("Could not open rule database", zap.Error(err))
+				return errors.Join(&cmdutil.ErrCommand{}, err)
+			}
+			defer ruleStore.Close()
+			rules := NewRuleManager(l, ruleStore, acl, privateKeys, publicKeys, cfg.Push.RulesMaxTTL)
+			push.Signer = rules
+			rulesHandler = authMiddleware.Wrap(rules)
+			l.Info("Resigning rules API enabled", zap.String("path", RulesAPIPath), zap.String("db", rulesDBPath))
+		}
 		l.Info("Push enabled", zap.String("staging_dir", push.stagingDir), zap.String("index", pushIndexPath))
 	} else if _, err := os.Stat(pushIndexPath); err == nil {
 		// Keep serving paths by the URLs clients pushed them under.
@@ -195,6 +227,7 @@ func Serve(cmdCtx *cmdutil.CmdContext, cfg *ServeConfig) error {
 		Store:                   store,
 		Push:                    pushHandler,
 		PushIndex:               pushIndex,
+		Rules:                   rulesHandler,
 	}
 
 	l.Info("Starting HTTP server")
@@ -265,10 +298,21 @@ type NixHandler struct {
 	Push http.Handler
 	// PushIndex maps the URLs paths were pushed under to store paths. May be nil.
 	PushIndex PushIndex
+	// Rules serves the resigning rules API. If nil, the API is disabled.
+	Rules http.Handler
 }
 
 func (n *NixHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
+
+	if r.URL.Path == RulesAPIPath || strings.HasPrefix(r.URL.Path, RulesAPIPath+"/") {
+		if n.Rules == nil {
+			http.Error(w, "the resigning rules API is not enabled", http.StatusNotFound)
+			return
+		}
+		n.Rules.ServeHTTP(w, r)
+		return
+	}
 
 	switch r.Method {
 	case http.MethodGet, http.MethodHead:

@@ -47,6 +47,9 @@ type NixStoreWriter interface {
 	// ImportNar unpacks the uncompressed NAR into the store and registers it using
 	// the metadata from ninfo. Returns false if the path was already valid.
 	ImportNar(ctx context.Context, ninfo *nixtypes.NarInfo, narReader io.Reader) (bool, error)
+	// SignPath calls sign with the registered metadata of a valid path, and stores the
+	// signatures it has if sign returns true. Returns whether signatures were stored.
+	SignPath(storePath string, sign func(ninfo *nixtypes.NarInfo) (bool, error)) (bool, error)
 	Close() error
 }
 
@@ -82,7 +85,7 @@ func NewNixStoreWriter(nixDb *pathlib.Path, storeRoot *pathlib.Path, storePath s
 		}
 	}
 
-	db, err := sqlx.Open("sqlite", fmt.Sprintf("file:%s?_pragma=busy_timeout(60000)&_pragma=foreign_keys(1)", nixDb.String()))
+	db, err := sqlx.Open("sqlite", fmt.Sprintf("file:%s?_pragma=busy_timeout(60000)&_pragma=foreign_keys(1)&_txlock=immediate", nixDb.String()))
 	if err != nil {
 		closeLock(bigLock)
 		return nil, err
@@ -285,6 +288,61 @@ func (n *nixStoreWriter) registerValidPath(ninfo *nixtypes.NarInfo, drvOutputs m
 	}
 
 	return tx.Commit()
+}
+
+func (n *nixStoreWriter) SignPath(storePath string, sign func(ninfo *nixtypes.NarInfo) (bool, error)) (bool, error) {
+	tx, err := n.db.Beginx()
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	row := new(ValidPaths)
+	if err := tx.Get(row, `SELECT * FROM ValidPaths WHERE path = ?`, storePath); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, &ErrNotFound{HashName: filepath.Base(storePath)}
+		}
+		return false, err
+	}
+	narHash := nixtypes.TypedNixHash{}
+	if err := narHash.UnmarshalText([]byte(row.Hash)); err != nil {
+		return false, err
+	}
+	refs := []string{}
+	if err := tx.Select(&refs, `SELECT v.path FROM Refs JOIN ValidPaths v ON v.id = reference WHERE referrer = ?`, row.Id); err != nil {
+		return false, err
+	}
+	refs = lo.Map(refs, func(item string, _ int) string { return filepath.Base(item) })
+	slices.Sort(refs)
+	sigs := []nixtypes.NixSignature{}
+	for _, sigStr := range strings.Fields(row.Sigs.V) {
+		sig := nixtypes.NixSignature{}
+		if err := sig.UnmarshalText([]byte(sigStr)); err != nil {
+			return false, err
+		}
+		sigs = append(sigs, sig)
+	}
+
+	ninfo := &nixtypes.NarInfo{
+		StorePath:  row.Path,
+		NarHash:    narHash,
+		NarSize:    row.NarSize,
+		References: refs,
+		Deriver:    lo.Ternary(row.Deriver.Valid, filepath.Base(row.Deriver.V), ""),
+		Sig:        sigs,
+		CA:         row.Ca.V,
+		Extra:      map[string]string{},
+	}
+	signed, err := sign(ninfo)
+	if err != nil || !signed {
+		return false, err
+	}
+	sigStrs := lo.Map(ninfo.Sig, func(item nixtypes.NixSignature, _ int) string { return item.String() })
+	if _, err := tx.Exec(`UPDATE ValidPaths SET sigs = ? WHERE id = ?`,
+		sql.Null[string]{V: strings.Join(sigStrs, " "), Valid: len(sigStrs) > 0}, row.Id); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
 }
 
 // readDerivationOutputs returns the output paths of an input-addressed derivation.

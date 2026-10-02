@@ -32,6 +32,9 @@ type PushConfig struct {
 	AuthCacheTTL time.Duration `help:"How long to cache successful Basic authentications (0 to disable)" default:"5m"`
 	PasswordFile []string      `help:"Files of username:argon2-hash lines (see debug hash-password)" type:"existingfile"`
 	Index        string        `help:"Database of the URLs paths were uploaded under, so clients can fetch them by those URLs (relative to the root)" default:"nix/var/nix-sigman/push-index.sqlite"`
+	RulesACLFile string        `help:"YAML file granting users the keys they may sign their pushes with - enables the resigning rules API" name:"rules-acl-file" type:"existingfile"`
+	RulesDB      string        `help:"Database of resigning rules created through the API (relative to the root)" name:"rules-db" default:"nix/var/nix-sigman/rules.sqlite"`
+	RulesMaxTTL  time.Duration `help:"Maximum lifetime of resigning rules created through the API (0 for unlimited)" name:"rules-max-ttl" default:"0s"`
 
 	LDAP     httpauth.LDAPConfig     `embed:"" prefix:"ldap-"`
 	Kerberos httpauth.KerberosConfig `embed:"" prefix:"kerberos-"`
@@ -42,24 +45,27 @@ const maxNarInfoSize = 1 << 20
 
 var narUploadRegex = regexp.MustCompile(`^nar/[A-Za-z0-9_-][A-Za-z0-9._-]*$`)
 
-// newAuthMiddleware builds the push authentication middleware from the configured backends.
-func (p *PushConfig) newAuthMiddleware(l *zap.Logger) (*httpauth.Middleware, error) {
+// newAuthMiddleware builds the push authentication middleware from the configured
+// backends. The LDAP backend is returned too, if configured, for group checks.
+func (p *PushConfig) newAuthMiddleware(l *zap.Logger) (*httpauth.Middleware, *httpauth.LDAPAuthenticator, error) {
 	basic := []httpauth.BasicAuthenticator{}
 
 	if len(p.PasswordFile) > 0 {
 		passwords, err := httpauth.LoadPasswordFiles(p.PasswordFile...)
 		if err != nil {
-			return nil, fmt.Errorf("could not load password files: %w", err)
+			return nil, nil, fmt.Errorf("could not load password files: %w", err)
 		}
 		l.Info("Loaded push password files", zap.Int("users", passwords.Users()))
 		basic = append(basic, passwords)
 	}
 
 	var authorizer httpauth.Authorizer
+	var ldapAuth *httpauth.LDAPAuthenticator
 	if p.LDAP.URL != "" {
-		ldapAuth, err := httpauth.NewLDAPAuthenticator(l, p.LDAP)
+		var err error
+		ldapAuth, err = httpauth.NewLDAPAuthenticator(l, p.LDAP)
 		if err != nil {
-			return nil, fmt.Errorf("could not configure LDAP: %w", err)
+			return nil, nil, fmt.Errorf("could not configure LDAP: %w", err)
 		}
 		l.Info("LDAP push authentication enabled", zap.String("url", p.LDAP.URL))
 		basic = append(basic, ldapAuth)
@@ -71,7 +77,7 @@ func (p *PushConfig) newAuthMiddleware(l *zap.Logger) (*httpauth.Middleware, err
 		var err error
 		krb, err = httpauth.NewKerberosAuthenticator(l, p.Kerberos, authorizer)
 		if err != nil {
-			return nil, fmt.Errorf("could not configure Kerberos: %w", err)
+			return nil, nil, fmt.Errorf("could not configure Kerberos: %w", err)
 		}
 		l.Info("Kerberos push authentication enabled", zap.Bool("basic_auth", p.Kerberos.BasicAuth))
 		if p.Kerberos.BasicAuth {
@@ -80,10 +86,10 @@ func (p *PushConfig) newAuthMiddleware(l *zap.Logger) (*httpauth.Middleware, err
 	}
 
 	if len(basic) == 0 && krb == nil {
-		return nil, errors.New("push requires at least one authentication method " +
+		return nil, nil, errors.New("push requires at least one authentication method " +
 			"(password files, LDAP or Kerberos)")
 	}
-	return httpauth.NewMiddleware(l, p.AuthRealm, p.AuthCacheTTL, krb, basic...), nil
+	return httpauth.NewMiddleware(l, p.AuthRealm, p.AuthCacheTTL, krb, basic...), ldapAuth, nil
 }
 
 type stagedNar struct {
@@ -103,6 +109,8 @@ type PushHandler struct {
 	stagingDir string
 	stagingTTL time.Duration
 	maxNarSize int64
+	// Signer, if set, signs pushed paths.
+	Signer PushSigner
 
 	mtx    sync.Mutex
 	staged map[string]stagedNar
@@ -274,6 +282,20 @@ func (p *PushHandler) putNarInfo(w http.ResponseWriter, r *http.Request, name st
 		if nar, found := p.claimStaged(ninfo.URL); found {
 			_ = os.Remove(nar.path)
 		}
+		if p.Signer != nil {
+			// Sign what the store has registered: the uploaded narinfo may not match it.
+			signed, err := p.writer.SignPath(ninfo.StorePath, func(stored *nixtypes.NarInfo) (bool, error) {
+				return p.Signer.SignPushed(r.Context(), remoteUser(r), stored)
+			})
+			if err != nil {
+				l.Error("Could not sign pushed path", zap.Error(err))
+				http.Error(w, "could not sign path", http.StatusServiceUnavailable)
+				return
+			}
+			if signed {
+				l.Info("Added signatures to existing path")
+			}
+		}
 		p.recordURL(w, l, &ninfo)
 		return
 	}
@@ -303,6 +325,16 @@ func (p *PushHandler) putNarInfo(w http.ResponseWriter, r *http.Request, name st
 		return
 	}
 	defer fh.Close()
+
+	if p.Signer != nil {
+		// The signed fingerprint covers the NarHash, NarSize and references, which the
+		// import checks or records as given.
+		if _, err := p.Signer.SignPushed(r.Context(), remoteUser(r), &ninfo); err != nil {
+			l.Error("Could not sign pushed path", zap.Error(err))
+			http.Error(w, "could not sign path", http.StatusServiceUnavailable)
+			return
+		}
+	}
 
 	narReader, err := decompressor(ninfo.Compression, fh)
 	if err != nil {
