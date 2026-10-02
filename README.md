@@ -139,3 +139,82 @@ Signatures in pushed narinfo files are recorded as-is; `--required-signatures` s
 applies when serving. Build logs, `.ls` listings, realisations and debug info uploads are
 accepted but discarded. Pushing doesn't take part in Nix's garbage collector root
 protocol, so avoid running `nix-collect-garbage` on the store while pushes are in progress.
+
+#### Resigning rules
+
+Pushing users can be allowed to have the server sign what they push with its own private
+keys (`--private-keys` or `--private-key-files`). Enable it with an ACL file naming who may sign with which
+keys:
+
+```yaml
+# /etc/nix-sigman/rules-acl.yml
+admins:                     # may list and delete everyone's rules
+  users: [root]
+  ldap_groups: ["cn=cache-admins,ou=groups,dc=example,dc=com"]
+grants:
+  - users: [ci-*]           # glob patterns, matched against the authenticated username
+    keys: [release-*]       # glob patterns of loaded private key names
+  - ldap_groups:
+      - cn=release,ou=groups,dc=example,dc=com
+    keys: [release-1]
+```
+
+Quote LDAP DNs in YAML flow lists (`[...]`), since otherwise the commas split them apart.
+`ldap_groups` requires LDAP to be configured; Kerberos principals are looked up by their
+primary name. Grants are rechecked whenever a rule is applied, so revoking a grant (or
+unloading a key) stops existing rules signing with it.
+
+```
+nix-sigman --private-key-files=/etc/nix-sigman/release-1.sec serve --root=/mnt/cache \
+  --push-enabled --push-password-file=/etc/nix-sigman/passwd \
+  --push-rules-acl-file=/etc/nix-sigman/rules-acl.yml --push-rules-max-ttl=24h
+```
+
+Rules are managed with the same credentials used to push, under `/_sigman/rules`, and are
+stored in `--push-rules-db` (by default `nix/var/nix-sigman/rules.sqlite` under the root):
+
+```
+# Sign this user's pushes of hello-* that aren't already signed, for the next 2 hours.
+curl --netrc-file netrc -X POST http://cache.example.com:8081/_sigman/rules -d '{
+  "description": "release 2.12",
+  "condition": {"and": [{"name": "hello-*"}, {"not": {"signed_by": "release-1"}}]},
+  "sign_with": ["release-1"],
+  "expires_in": "2h"
+}'
+curl --netrc-file netrc http://cache.example.com:8081/_sigman/rules
+curl --netrc-file netrc -X DELETE http://cache.example.com:8081/_sigman/rules/<id>
+# Delete every rule signing with a key (admins: add owner=<user> to limit it to one user).
+curl --netrc-file netrc -X DELETE 'http://cache.example.com:8081/_sigman/rules?sign_with=release-1'
+```
+
+| Request | |
+|---|---|
+| `GET /_sigman/rules[?owner=&sign_with=]` | List unexpired rules. |
+| `POST /_sigman/rules` | Create a rule owned by the caller. Returns `201` with the rule. |
+| `GET /_sigman/rules/<id>` | Get a rule. |
+| `DELETE /_sigman/rules/<id>` | Delete a rule. |
+| `DELETE /_sigman/rules[?owner=&sign_with=]` | Delete matching rules. Admins must give a filter or `all=true`. |
+
+Users only see and delete their own rules; admins can manage everyone's, but still need a
+grant to create rules. A rule only applies to paths its owner pushes, so nobody can get
+another user's uploads signed with keys that user hasn't been granted.
+
+A rule's `condition` is optional (if omitted it matches every path) and has exactly one
+of these operators:
+
+* `{"and": [...]}`, `{"or": [...]}`, `{"not": {...}}`
+* `{"signed": true|false}`: whether the path has any signatures.
+* `{"signed_by": "key-name"}`: whether the path has a valid signature by a public key from
+  `--public-key-files` or the public half of a loaded private key.
+* `{"name": "glob"}`: matched against the store path name without its hash, e.g. `hello-*`
+  matches `/nix/store/<hash>-hello-2.12`.
+
+Rules can expire, given either `expires_in` (a duration like `90m`) or `expires_at`
+(RFC 3339). `--push-rules-max-ttl` limits how long rules may last and is the default expiry
+for rules which don't give one. Expired rules stop applying immediately and are removed
+from the database.
+
+Signatures are added as paths are pushed and stored in the Nix database, so they remain
+after the rule is deleted or expires. Nix doesn't upload paths the cache already has, so
+a new rule doesn't sign paths pushed before it was created; sign those on the server with
+`nix store sign --store local?root=/mnt/cache --key-file <key> <paths>`.
