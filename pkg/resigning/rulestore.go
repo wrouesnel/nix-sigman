@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	_ "modernc.org/sqlite"
 )
 
 const ruleStoreSchema = `

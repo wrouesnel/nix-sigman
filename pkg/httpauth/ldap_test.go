@@ -413,3 +413,24 @@ func (s *LDAPSuite) TestRealDialError(c *C) {
 	c.Check(err, NotNil)
 	c.Check(result, Equals, httpauth.Denied)
 }
+
+func (s *LDAPSuite) TestIsMemberOfAny(c *C) {
+	a := s.newAuth(c, s.baseConfig())
+	// The groups asked about are checked, not the configured push groups.
+	ok, err := a.IsMemberOfAny(context.Background(), "alice", []string{missingGroup, otherGroupDN})
+	c.Check(err, IsNil)
+	c.Check(ok, Equals, false)
+	ok, err = a.IsMemberOfAny(context.Background(), "alice", []string{otherGroupDN, pushGroupDN})
+	c.Check(err, IsNil)
+	c.Check(ok, Equals, true)
+	ok, err = a.IsMemberOfAny(context.Background(), "nobody", []string{pushGroupDN})
+	c.Check(err, IsNil)
+	c.Check(ok, Equals, false)
+
+	// No groups means no lookup.
+	dials := s.dials
+	ok, err = a.IsMemberOfAny(context.Background(), "alice", nil)
+	c.Check(err, IsNil)
+	c.Check(ok, Equals, false)
+	c.Check(s.dials, Equals, dials)
+}

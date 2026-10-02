@@ -17,6 +17,7 @@ import (
 
 	"github.com/mholt/archives"
 	"github.com/wrouesnel/nix-sigman/pkg/entrypoints/serve"
+	"github.com/wrouesnel/nix-sigman/pkg/httpauth"
 	"github.com/wrouesnel/nix-sigman/pkg/nixstore"
 	"github.com/wrouesnel/nix-sigman/pkg/nixtypes"
 	"go.uber.org/zap"
@@ -392,4 +393,81 @@ func (s *PushSuite) TestPushIndexReadOnly(c *C) {
 	c.Check(storePath, Equals, pushStorePath)
 	c.Check(compression, Equals, "zstd")
 	c.Check(ro.Record("nar/b.nar", pushStorePath, "none"), NotNil)
+}
+
+// fakeSigner signs every pushed path with key, recording who pushed it.
+type fakeSigner struct {
+	key    nixtypes.NamedPrivateKey
+	owners []string
+	err    error
+}
+
+func (f *fakeSigner) SignPushed(_ context.Context, owner string, ninfo *nixtypes.NarInfo) (bool, error) {
+	f.owners = append(f.owners, owner)
+	if f.err != nil {
+		return false, f.err
+	}
+	signed, _, err := ninfo.Sign(f.key)
+	return signed, err
+}
+
+func (s *PushSuite) signer(c *C) *fakeSigner {
+	key, err := nixtypes.GeneratePrivateKey("push-1")
+	c.Assert(err, IsNil)
+	signer := &fakeSigner{key: key}
+	s.push.Signer = signer
+	return signer
+}
+
+func (s *PushSuite) TestSignerSignsImportedPaths(c *C) {
+	signer := s.signer(c)
+	// The pushing user is passed to the signer.
+	s.handler.Push = httpauth.NewMiddleware(zap.NewNop(), "test", 0, nil, fakeBasic{}).Wrap(s.push)
+	narData := []byte("nar!")
+	c.Assert(s.do(http.MethodPut, "/nar/upload.nar", narData, "Authorization", basicAuth("ci")).Code, Equals, http.StatusOK)
+	rec := s.do(http.MethodPut, narinfoTarget, narInfo(c, "nar/upload.nar", "none", narData, narData),
+		"Authorization", basicAuth("ci"))
+	c.Assert(rec.Code, Equals, http.StatusOK, Commentf(rec.Body.String()))
+	c.Check(signer.owners, DeepEquals, []string{"ci"})
+
+	stored := s.writer.stored[pushStorePath]
+	c.Assert(stored, NotNil)
+	valid, _ := stored.Verify(signer.key.PublicKey())
+	c.Check(valid, Equals, true)
+}
+
+func (s *PushSuite) TestSignerSignsAlreadyValidPaths(c *C) {
+	signer := s.signer(c)
+	// The store's own metadata is signed, not the uploaded narinfo.
+	registered := pushedNarInfo(c)
+	registered.NarSize = 1234
+	s.writer.valid[pushStorePath] = true
+	s.writer.stored[pushStorePath] = registered
+
+	narData := []byte("nar!")
+	c.Assert(s.do(http.MethodPut, "/nar/upload.nar", narData).Code, Equals, http.StatusOK)
+	rec := s.do(http.MethodPut, narinfoTarget, narInfo(c, "nar/upload.nar", "none", narData, narData))
+	c.Assert(rec.Code, Equals, http.StatusOK, Commentf(rec.Body.String()))
+	c.Check(s.writer.imported, HasLen, 0)
+	c.Check(signer.owners, DeepEquals, []string{""})
+
+	stored := s.writer.stored[pushStorePath]
+	c.Check(stored.NarSize, Equals, uint64(1234))
+	valid, _ := stored.Verify(signer.key.PublicKey())
+	c.Check(valid, Equals, true)
+}
+
+func (s *PushSuite) TestSignerErrors(c *C) {
+	signer := s.signer(c)
+	signer.err = errors.New("acl unavailable")
+	narData := []byte("nar!")
+	body := narInfo(c, "nar/upload.nar", "none", narData, narData)
+
+	c.Assert(s.do(http.MethodPut, "/nar/upload.nar", narData).Code, Equals, http.StatusOK)
+	c.Check(s.do(http.MethodPut, narinfoTarget, body).Code, Equals, http.StatusServiceUnavailable)
+	c.Check(s.writer.imported, HasLen, 0)
+
+	s.writer.valid[pushStorePath] = true
+	c.Assert(s.do(http.MethodPut, "/nar/upload.nar", narData).Code, Equals, http.StatusOK)
+	c.Check(s.do(http.MethodPut, narinfoTarget, body).Code, Equals, http.StatusServiceUnavailable)
 }

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -400,4 +401,60 @@ func (s *WriterSuite) TestValidateStorePathName(c *C) {
 	} {
 		c.Check(nixstore.ValidateStorePathName(name), NotNil, Commentf("%q", name))
 	}
+}
+
+func (s *WriterSuite) TestSignPath(c *C) {
+	key, err := nixtypes.GeneratePrivateKey("push-1")
+	c.Assert(err, IsNil)
+	sign := func(ninfo *nixtypes.NarInfo) (bool, error) {
+		signed, _, err := ninfo.Sign(key)
+		return signed, err
+	}
+
+	_, err = s.writer.SignPath(nixstore.DefaultStorePath+"/"+mainName, sign)
+	_, notFound := err.(*nixstore.ErrNotFound)
+	c.Check(notFound, Equals, true, Commentf("%v", err))
+
+	depData := s.makeNar(c, depName, "dep")
+	_, err = s.importNar(c, narInfoFor(depName, depData), depData)
+	c.Assert(err, IsNil)
+	narData := s.makeNar(c, mainName, "hello")
+	ninfo := narInfoFor(mainName, narData, mainName, depName)
+	_, err = s.importNar(c, ninfo, narData)
+	c.Assert(err, IsNil)
+
+	// The callback sees the registered metadata, and its signatures are stored.
+	signed, err := s.writer.SignPath(ninfo.StorePath, func(stored *nixtypes.NarInfo) (bool, error) {
+		c.Check(stored.StorePath, Equals, ninfo.StorePath)
+		c.Check(stored.NarHash, DeepEquals, ninfo.NarHash)
+		c.Check(stored.NarSize, Equals, ninfo.NarSize)
+		c.Check(stored.References, DeepEquals, []string{depName, mainName})
+		return sign(stored)
+	})
+	c.Assert(err, IsNil)
+	c.Check(signed, Equals, true)
+	signed, err = s.writer.SignPath(ninfo.StorePath, sign)
+	c.Assert(err, IsNil)
+	c.Check(signed, Equals, false)
+
+	// The signature is valid for the narinfo the store serves.
+	store, err := nixstore.NewNixStore(s.nixDb, s.storeRoot, nixstore.DefaultStorePath)
+	c.Assert(err, IsNil)
+	served, _, err := store.GetNarInfo(mainName)
+	c.Assert(err, IsNil)
+	valid, _ := served.Verify(key.PublicKey())
+	c.Check(valid, Equals, true)
+	c.Check(served.Sig, HasLen, 1)
+
+	// Nothing is written if the callback fails.
+	other, err := nixtypes.GeneratePrivateKey("other-1")
+	c.Assert(err, IsNil)
+	_, err = s.writer.SignPath(ninfo.StorePath, func(stored *nixtypes.NarInfo) (bool, error) {
+		_, _, _ = stored.Sign(other)
+		return true, errors.New("failed")
+	})
+	c.Check(err, ErrorMatches, "failed")
+	served, _, err = store.GetNarInfo(mainName)
+	c.Assert(err, IsNil)
+	c.Check(served.Sig, HasLen, 1)
 }
